@@ -151,7 +151,11 @@
         "#######|#######"
       ],
       events: [],
-      solution: "R R R R"
+      solution: "R R R R",
+      checks: [
+        { about: "door closes when T steps off the plate", inputs: "R R L", want: { openDoors: [], events: { "door:A": 2 } } },
+        { about: "undo restores the door", inputs: "R R UNDO", want: { openDoors: [], turn: 1 } }
+      ]
     },
     {
       number: 905, name: "Test: spikes", act: 1,
@@ -164,7 +168,102 @@
       ],
       events: [],
       solution: "D R R U R",
-      failCheck: { inputs: "R", reason: "spikes" }   // test page only: these inputs must fail
+      checks: [
+        { about: "spikes fail the level", inputs: "R", want: { status: "failed", events: { "fail:spikes": 1 } } },
+        { about: "after a fail only RESTART works", inputs: "R UNDO L RESTART", want: { status: "playing", turn: 0 } }
+      ]
+    },
+    {
+      number: 906, name: "Test: stoppable disobey", act: 2, look: true,
+      // Stepping R onto (4,1) warns (shimmer). Next move it goes Down instead, unless you Look.
+      map: [
+        "#######|#######",
+        "#T...G#|#G...R#",
+        "#.....#|#.....#",
+        "#######|#######"
+      ],
+      events: [
+        { at: { who: "reflection", x: 4, y: 1 }, do: "disobey", dir: "D", kind: "stoppable", warn: true }
+      ],
+      solution: "R LOOK R R R",
+      checks: [
+        { about: "Look cancels it: no crack, no Mercy", inputs: "R LOOK R R R", want: { status: "won", cracks: 0, mercy: 0, events: { "moment:shimmer": 1 } } },
+        { about: "letting it happen: 1 crack, 1 Mercy", inputs: "R R U R R R", want: { status: "won", cracks: 1, mercy: 1, events: { "crack:1": 1 } } },
+        { about: "undo rolls back the crack and Mercy", inputs: "R R UNDO", want: { cracks: 0, mercy: 0, turn: 1 } },
+        { about: "undo un-fires the trigger, so it fires again", inputs: "R UNDO R", want: { events: { "moment:shimmer": 2 } } },
+        { about: "cracks carry in Act 2, and the 5th breaks the glass", carry: { cracks: 4, mercy: 0, undoLockUsed: false }, inputs: "R R",
+          want: { cracks: 0, events: { "crack:5": 1, "glassBreak": 1 } } }
+      ]
+    },
+    {
+      number: 907, name: "Test: required disobey", act: 2, look: true,
+      // No warning. Looking at it cancels it; after the next RESTART comes the hint.
+      map: [
+        "#######|#######",
+        "#T...G#|#G...R#",
+        "#.....#|#.....#",
+        "#######|#######"
+      ],
+      events: [
+        { at: { who: "reflection", x: 4, y: 1 }, do: "disobey", dir: "D", kind: "required", warn: false }
+      ],
+      solution: "R R U R R R",
+      checks: [
+        { about: "required: a crack but no Mercy", inputs: "R R U R R R", want: { status: "won", cracks: 1, mercy: 0, events: { "moment:shimmer": 0 } } },
+        { about: "looking at it, then RESTART, gives the hint", inputs: "R LOOK RESTART", want: { turn: 0, events: { "hint:Maybe let it.": 1 } } }
+      ]
+    },
+    {
+      number: 908, name: "Test: lag 2", act: 2, lag: 2,
+      // The reflection stays still for 2 turns, then copies Theo's moves 2 turns late.
+      map: [
+        "#######|#######",
+        "#T...G#|#G...R#",
+        "#######|#######"
+      ],
+      events: [],
+      solution: "R R R R R R",
+      checks: [
+        { about: "still for the first 2 turns", inputs: "R R", want: { person: { x: 3, y: 1 }, reflection: { x: 5, y: 1 } } },
+        { about: "then mirrors Theo's move from 2 turns ago", inputs: "R R R", want: { reflection: { x: 4, y: 1 } } }
+      ]
+    },
+    {
+      number: 909, name: "Test: undo lock", act: 2,
+      // Theo stepping on (2,1) locks Undo there. The first refused Undo shows IT REMEMBERS, once ever.
+      map: [
+        "#######|#######",
+        "#T...G#|#G...R#",
+        "#######|#######"
+      ],
+      events: [
+        { at: { who: "person", x: 2, y: 1 }, do: "undoLock" }
+      ],
+      solution: "R R R R",
+      checks: [
+        { about: "undo can't go back past the lock", inputs: "R R UNDO UNDO UNDO", want: { turn: 1, events: { "text:IT REMEMBERS": 1 } } },
+        { about: "only once per playthrough (survives restart)", inputs: "R R UNDO UNDO RESTART R UNDO", want: { turn: 0, events: { "text:IT REMEMBERS": 1 } } }
+      ]
+    },
+    {
+      number: 910, name: "Test: slip and text", act: 2,
+      // The level opens with a 2-turn slip: your keys move the reflection and Theo mirrors it.
+      // The reflection reaching (3,1) shows a message.
+      map: [
+        "#######|#######",
+        "#T...G#|#G...R#",
+        "#######|#######"
+      ],
+      events: [
+        { at: "start", do: "slip", turns: 2 },
+        { at: { who: "reflection", x: 3, y: 1 }, do: "text", words: "HELLO", side: "right", mirrored: true }
+      ],
+      solution: "L L R R",
+      checks: [
+        { about: "during slip, Right moves the reflection right (into the wall)", inputs: "R", want: { person: { x: 1, y: 1 }, reflection: { x: 5, y: 1 }, slipTurns: 1 } },
+        { about: "the text fires once, and again after undo", inputs: "L L UNDO L", want: { events: { "text:HELLO": 2 } } },
+        { about: "RESTART plays the start events again", inputs: "L RESTART", want: { slipTurns: 2, events: { "moment:slip": 2 } } }
+      ]
     }
   ];
 
@@ -390,6 +489,46 @@
     return { ok: true, why };
   }
 
+  // "crack:1", "moment:shimmer", "text:IT REMEMBERS", "fail:spikes", "door:A", "win" ...
+  function eventKey(e) {
+    const detail = [e.kind, e.reason, e.words, e.cracks, e.letter].find(v => v !== undefined);
+    return detail === undefined ? e.type : e.type + ":" + detail;
+  }
+
+  // A test-room check: play its inputs and compare the result with "want". Returns the problems.
+  function runCheck(level, check) {
+    const run = play(level, check.carry, check.inputs);
+    if (run.error) return ["error: " + run.error];
+    if (run.mutated) return ["step changed the state it was given"];
+    const s = run.state;
+    const want = check.want || {};
+    const problems = [];
+    const actual = {
+      status: s.status, turn: s.turn, cracks: s.cracks, mercy: s.carry ? s.carry.mercy : undefined,
+      slipTurns: s.slipTurns, person: s.person, reflection: s.reflection, openDoors: s.openDoors, ending: s.ending
+    };
+    Object.keys(want).forEach(k => {
+      if (k === "events") return;
+      if (JSON.stringify(actual[k]) !== JSON.stringify(want[k])) {
+        problems.push(k + " is " + JSON.stringify(actual[k]) + ", wanted " + JSON.stringify(want[k]));
+      }
+    });
+    if (want.events) {
+      const counts = {};
+      (run.startEvents || []).concat(...run.steps.map(st => st.events)).forEach(e => {
+        const key = eventKey(e);
+        counts[key] = (counts[key] || 0) + 1;
+        counts[e.type] = counts[e.type] || 0;
+        if (key !== e.type) counts[e.type] += 1;
+      });
+      Object.keys(want.events).forEach(key => {
+        const got = counts[key] || 0;
+        if (got !== want.events[key]) problems.push(key + " happened " + got + "x, wanted " + want.events[key] + "x");
+      });
+    }
+    return problems;
+  }
+
   function doCheckAll() {
     const lines = [{ text: "Check all levels" }];
     let passed = 0, failed = 0;
@@ -420,17 +559,15 @@
       r.ok ? passed++ : failed++;
       lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + ": " + r.why, cls: r.ok ? "pass" : "fail" });
 
-      if (level.failCheck) {
-        const fr = play(level, undefined, level.failCheck.inputs);
-        const failEvent = fr.steps.length ? fr.steps[fr.steps.length - 1].events.find(e => e.type === "fail") : null;
-        const ok = !fr.error && !fr.mutated && fr.state.status === "failed" && failEvent && failEvent.reason === level.failCheck.reason;
+      (level.checks || []).forEach(check => {
+        const problems = runCheck(level, check);
+        const ok = problems.length === 0;
         ok ? passed++ : failed++;
         lines.push({
-          text: (ok ? "PASS " : "FAIL ") + label + " [must fail \"" + level.failCheck.inputs + "\"]: " +
-            (fr.error ? "error: " + fr.error : summary(fr.state) + (failEvent ? " · reason " + failEvent.reason : "")),
+          text: "  " + (ok ? "PASS " : "FAIL ") + check.about + "  [" + check.inputs + "]" + (ok ? "" : ": " + problems.join("; ")),
           cls: ok ? "pass" : "fail"
         });
-      }
+      });
     });
     lines.push({ text: "" });
     lines.push({ text: passed + " passed, " + failed + " failed", cls: failed ? "fail" : "pass" });

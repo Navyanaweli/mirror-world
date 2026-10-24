@@ -34,7 +34,7 @@
     ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"],
     // C's whispered voice lines (optional; effects.js stays quiet if one is missing)
     ["voice-im-sorry", "mp3"], ["voice-let-me-out", "mp3"], ["voice-it-has-to-be-someone", "mp3"],
-    ["voice-together", "mp3"], ["voice-one-more", "mp3"], ["voice-is-someone-there", "mp3"]];
+    ["voice-together", "mp3"], ["voice-is-someone-there", "mp3"]];
 
   // Shapes drawn in code when an image file is missing (128x128, smooth).
   function makeFallback(scene, key) {
@@ -84,6 +84,29 @@
     }
     g.generateTexture(key, S, S);
     g.destroy();
+  }
+
+  // Make a copy of a texture recoloured by brightness: each pixel keeps its light and alpha
+  // but takes the new colour. (setTint multiplies, so silver on an orange goal came out olive.)
+  function makeRecoloured(scene, srcKey, newKey, rgb) {
+    try {
+      const src = scene.textures.get(srcKey).getSourceImage();
+      const w = src.width, h = src.height;
+      const tex = scene.textures.createCanvas(newKey, w, h);
+      const ctx = tex.getContext();
+      ctx.drawImage(src, 0, 0);
+      const img = ctx.getImageData(0, 0, w, h), d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const lum = Math.pow((0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255, 0.8);
+        d[i] = rgb[0] * lum; d[i + 1] = rgb[1] * lum; d[i + 2] = rgb[2] * lum;
+      }
+      ctx.putImageData(img, 0, 0);
+      tex.refresh();
+      return true;
+    } catch (e) {
+      console.warn("Could not recolour " + srcKey + ":", e);
+      return false;
+    }
   }
 
   // Call one of C's Effects functions without ever crashing the game.
@@ -154,6 +177,9 @@
 
     create() {
       IMAGES.forEach(key => { if (!this.textures.exists(key)) makeFallback(this, key); });
+      // v4 goals: H is Theo's (warm #E9B872), D is the other's (silver #9FD6E0).
+      makeRecoloured(this, "goal", "goal-theo", [0xE9, 0xB8, 0x72]);
+      makeRecoloured(this, "goal", "goal-other", [0x9F, 0xD6, 0xE0]);
       applySettings(this);
 
       if (sortedLevels().length === 0) {
@@ -504,6 +530,7 @@
       this.menuObjects = [];
       this.textThisTurn = false;
       this.failTimer = null;
+      this.queued = null;
 
       // A restart arrives with the state that RESTART returned; otherwise a fresh level.
       this.state = data.state || Rules.load(this.level);
@@ -575,6 +602,12 @@
       return img;
     }
 
+    // A goal in its owner's colour (falls back to a tint if recolouring wasn't possible).
+    goalImage(side, x, y, key, tint, layer) {
+      if (this.textures.exists(key)) return this.image(side, x, y, key, layer);
+      return this.image(side, x, y, "goal", layer).setTint(tint);
+    }
+
     // Each half is its own rounded "screen" with a soft shadow; the tiles are clipped to it.
     drawMap() {
       const h = this.rows * TILE;
@@ -602,8 +635,8 @@
               if (ch === " ") continue;
               if (ch === "#") { this.image(side, x, y, wallKey, layer); continue; }
               this.image(side, x, y, floorKey, layer);
-              if (ch === "H") this.image(side, x, y, "goal", layer).setTint(0xE9B872);       // Theo's goal
-              else if (ch === "D") this.image(side, x, y, "goal", layer).setTint(0x9FD6E0);  // the other's goal
+              if (ch === "H") this.goalImage(side, x, y, "goal-theo", 0xE9B872, layer);        // Theo's goal
+              else if (ch === "D") this.goalImage(side, x, y, "goal-other", 0x9FD6E0, layer);  // the other's goal
               else if (ch === "^") this.image(side, x, y, "spikes", layer);
               else if (ch === "a" || ch === "b") this.image(side, x, y, "plate", layer);
               else if (ch === "F") this.image(side, x, y, "frame", layer);
@@ -802,7 +835,10 @@
 
     // ---- sending input to the rules
     send(input) {
-      if (this.busy || this.locked) return;
+      if (this.locked) return;
+      // A key pressed while a move is still sliding is remembered (one at most) and played next.
+      if (this.busy) { this.queued = input; return; }
+      this.queued = null;
       // After a fail, Z and R still work during the short pause: cancel the automatic restart.
       if (this.failTimer && (input === "UNDO" || input === "RESTART")) {
         this.failTimer.remove(false);
@@ -833,6 +869,10 @@
       // After a win or an ending, keys are ignored until the next level loads.
       // After a fail, Z and R still work until the automatic restart.
       if (["won", "ended"].includes(this.state.status)) this.locked = true;
+      // Play a key that was pressed during the slide.
+      const q = this.queued;
+      this.queued = null;
+      if (q && !this.locked && !this.menuOpen) this.send(q);
     }
 
     // ---- events
@@ -911,7 +951,9 @@
             const cam = this.cameras.main;
             cam.resetFX();
             cam.fadeIn(400, 20, 21, 38);
-            return this.wait(400).then(() => this.showTogether()).then(() => this.nextLevel(["swap", "act3"]));
+            return this.wait(400)
+              .then(() => Promise.all([this.showTogether(), this.walkFree()]))
+              .then(() => this.nextLevel(["swap", "act3"]));
           });
         }
         case "ending":
@@ -934,6 +976,15 @@
         if (ev.at) { const c = this.crackSprites[ev.at.side + ":" + ev.at.x + ":" + ev.at.y]; if (c) c.setVisible(false); }
         return this.tween({ targets: [this.theo, this.other], alpha: 1, duration: 220 });
       });
+    }
+
+    // Swap scene: Mara walks free out of the real room while Theo is left, dimmed, behind the glass.
+    walkFree() {
+      const mara = this.other, theo = this.theo;
+      const away = this.state.other && this.state.other.side === "left" ? -1 : 1;
+      this.tweens.add({ targets: theo, alpha: 0.45, duration: 1400, ease: "Sine.easeInOut" });
+      return this.tween({ targets: mara, x: mara.x + away * TILE * 1.5, alpha: 0, duration: 2000,
+        delay: 500, ease: "Sine.easeIn" });
     }
 
     // After Level 6: TOGETHER fades onto the glass, then the swap card.

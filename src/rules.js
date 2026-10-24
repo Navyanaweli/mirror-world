@@ -10,8 +10,8 @@
 const Rules = (function () {
 
   const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
-  // The mirror swaps left and right only.
-  const MIRROR = { U: "U", D: "D", L: "R", R: "L" };
+  // Team change after v3: the reflection does the full opposite (left/right and up/down swap).
+  const MIRROR = { U: "D", D: "U", L: "R", R: "L" };
   const DEFAULT_CARRY = { cracks: 0, mercy: 0, undoLockUsed: false };
   // Door letter -> the plate that holds it open.
   const PLATES = { A: "a", B: "b" };
@@ -116,8 +116,9 @@ const Rules = (function () {
         events.push({ type: "hint", words: ev.words || "" });
         break;
       case "disobey":
-        // v3: the warning comes now, the disobey on the next move.
-        if (ev.warn) events.push({ type: "moment", kind: "shimmer", who: "reflection" });
+        // v3: the warning comes now, the disobey on the next move. dir lets the
+        // screen show which way the glitch will pull.
+        if (ev.warn) events.push({ type: "moment", kind: "shimmer", who: "reflection", dir: ev.dir });
         state._pending = { dir: ev.dir, kind: ev.kind === "required" ? "required" : "stoppable" };
         break;
       case "slip":
@@ -145,6 +146,20 @@ const Rules = (function () {
     if (!at || typeof at !== "object") return false;
     const body = at.who === "reflection" ? state.reflection : state.person;
     return body.x === at.x && body.y === at.y;
+  }
+
+  // Glitch tiles B draws: every tile disobey still waiting to fire this attempt.
+  function updateGlitches(state) {
+    state.glitches = [];
+    state._events.forEach((ev, i) => {
+      if (ev.do !== "disobey" || !ev.at || typeof ev.at !== "object") return;
+      if (state._fired.indexOf(i) !== -1) return;
+      state.glitches.push({
+        who: ev.at.who === "person" ? "person" : "reflection",
+        x: ev.at.x, y: ev.at.y, dir: ev.dir,
+        kind: ev.kind === "required" ? "required" : "stoppable"
+      });
+    });
   }
 
   // ---------- Act 3 helpers ----------
@@ -223,6 +238,7 @@ const Rules = (function () {
       slipTurns: 0,
       status: "playing",
       ending: null,
+      glitches: [],               // team change: [{who, x, y, dir, kind}] tiles that will glitch
       carry: {
         cracks: cracks,
         mercy: inCarry.mercy || 0,
@@ -248,6 +264,7 @@ const Rules = (function () {
     state._history = [];
     updateDoors(state, null);   // in case someone starts on a plate
     fireMatching(state, state.startEvents, ev => ev.at === "start");
+    updateGlitches(state);
     if (act === 3) updateSamView(state);
     state._start = snapshot(state);
     return state;
@@ -345,6 +362,7 @@ const Rules = (function () {
       fireMatching(state, events, ev => standsOn(state, ev.at));
     }
 
+    updateGlitches(state);
     state.carry.cracks = state.cracks;
     return { state, events };
   }
@@ -382,7 +400,9 @@ const Rules = (function () {
     const disobeyed = choice !== "follow";
     if (disobeyed) {
       state.will -= 1;
-      events.push({ type: "moment", kind: "shimmer", who: "reflection" });
+      const shimmer = { type: "moment", kind: "shimmer", who: "reflection" };
+      if (choice === "break") shimmer.dir = input;
+      events.push(shimmer);
       addCrack(state, events);
     }
 

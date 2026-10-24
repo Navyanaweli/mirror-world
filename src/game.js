@@ -683,6 +683,14 @@
       const style = { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.light };
       this.add.text(16, BAR / 2, "Level " + this.level.number + " · " + (this.level.name || ""), style)
         .setOrigin(0, 0.5).setDepth(21);
+      // Presentation shortcut: skip to the next level (click, or N). Not on the final room.
+      if (!this.level.final) {
+        const skip = this.add.text(W - 16, BAR / 2, "Skip level ▸  N", { ...style, fontSize: "14px", color: COLORS.dim })
+          .setOrigin(1, 0.5).setDepth(21).setPadding(8, 4, 8, 4).setInteractive({ useHandCursor: true });
+        skip.on("pointerover", () => skip.setColor(COLORS.silver));
+        skip.on("pointerout", () => skip.setColor(COLORS.dim));
+        skip.on("pointerdown", () => this.skipLevel());
+      }
       // v4 bottom bar, plus the pause menu key.
       this.add.text(W / 2, H - BAR / 2, "Arrows move · Z undo · R restart · Esc menu", { ...style, color: COLORS.dim })
         .setOrigin(0.5).setDepth(21);
@@ -724,6 +732,7 @@
         if (e.code === "Escape" || e.code === "KeyP") { this.menuOpen ? this.closeMenu() : this.openMenu(); return; }
         if (this.menuOpen) { this.menuKey(e.code); return; }
         if (e.code === "KeyM") { toggleMute(this); return; }
+        if (e.code === "KeyN") { this.skipLevel(); return; }
         const input = map[e.code];
         if (input) this.send(input);
       });
@@ -735,6 +744,7 @@
       return [
         { label: "Resume", act: () => this.closeMenu() },
         { label: "Restart level", act: () => { this.closeMenu(); this.send("RESTART"); } },
+        ...(this.level.final ? [] : [{ label: "Skip level", act: () => { this.closeMenu(); this.skipLevel(); } }]),
         { label: "Volume   ◀  " + vol + "%  ▶", value: "Volume   " + vol + "%",
           adjust: d => this.setVolume(SETTINGS.volume + d * 0.1),
           act: () => this.setVolume(SETTINGS.volume >= 0.99 ? 0 : SETTINGS.volume + 0.1) },
@@ -1034,6 +1044,15 @@
       const card = { take: "endingTake", break: "endingBreak", stay: "endingStay" }[which];
       const cards = card ? [card, "credits"] : ["credits"];
       this.scene.start("Story", { cards, next: { scene: "Title", data: { after: which } } });
+    }
+
+    // Presentation shortcut: leave this level as if it were solved, without the win animation.
+    // After Level 6 the swap and Act 3 cards still play, so the story stays in order.
+    skipLevel() {
+      if (this.locked || this.menuOpen || this.level.final) return;
+      this.locked = true;
+      const next = this.levels[this.index + 1];
+      this.nextLevel(next && this.level.act === 2 && next.act === 3 ? ["swap", "act3"] : undefined);
     }
 
     // Go to the next level. When the act changes, its story card comes first.

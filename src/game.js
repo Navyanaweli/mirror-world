@@ -54,6 +54,7 @@
       this.load.on("loaderror", file => console.info("Missing asset (using fallback):", file.key));
       IMAGES.forEach(k => this.load.image(k, "assets/images/" + k + ".png"));
       SOUNDS.forEach(([k, ext]) => this.load.audio(k, "assets/sounds/" + k + "." + ext));
+      this.load.image("title", "assets/images/title.png"); // optional, 960x540
     }
 
     create() {
@@ -76,7 +77,95 @@
         this.add.text(W / 2, H / 2, "No levels found", { fontFamily: "monospace", fontSize: "20px", color: COLORS.light }).setOrigin(0.5);
         return;
       }
-      this.scene.start("Level", { index: 0 });
+      this.scene.start("Title");
+    }
+  }
+
+  // Story text by field name, with a quiet fallback if story.js is missing a field.
+  function storyText(key) {
+    const s = (typeof STORY !== "undefined") ? STORY[key] : null;
+    return (typeof s === "string" && s.length) ? s : "";
+  }
+
+  // Start the first level, with the intro and the first act's card in front of it.
+  function startGame(scene) {
+    const first = sortedLevels()[0];
+    scene.scene.start("Story", {
+      cards: ["intro", "act" + (first ? first.act : 1)],
+      next: { scene: "Level", data: { index: 0 } }
+    });
+  }
+
+  // ---------------------------------------------------------------- Title
+  class TitleScene extends Phaser.Scene {
+    constructor() { super("Title"); }
+
+    create() {
+      this.cameras.main.setBackgroundColor(COLORS.bg);
+      const hasArt = this.textures.exists("title");
+      if (hasArt) {
+        this.add.image(W / 2, H / 2, "title").setDisplaySize(W, H);
+      } else {
+        this.add.text(W / 2, H / 2 - 70, "MIRROR WORLD", {
+          fontFamily: "Georgia, serif", fontSize: "56px", color: COLORS.light
+        }).setOrigin(0.5);
+      }
+
+      const prompt = this.add.text(W / 2, H - 150, "Press Enter", {
+        fontFamily: "monospace", fontSize: "20px", color: COLORS.silver
+      }).setOrigin(0.5);
+      this.tweens.add({ targets: prompt, alpha: 0.35, duration: 1100, yoyo: true, repeat: -1 });
+
+      this.add.text(W / 2, H - 70,
+        "Arrows / WASD move · Space look · Z undo · R restart · M mute", {
+          fontFamily: "monospace", fontSize: "14px", color: "#B8BCC8",
+          backgroundColor: hasArt ? "#11141CAA" : null, padding: { x: 8, y: 4 }
+        }).setOrigin(0.5);
+
+      this.input.keyboard.on("keydown", e => {
+        if (e.code === "KeyM") this.sound.mute = !this.sound.mute;
+      });
+      this.input.keyboard.once("keydown-ENTER", () => startGame(this));
+      this.cameras.main.fadeIn(600, 17, 20, 28);
+    }
+  }
+
+  // ---------------------------------------------------------------- Story card
+  // One reusable full-screen card. data.cards is a list of STORY field names;
+  // Enter shows the next one, then data.next starts.
+  class StoryScene extends Phaser.Scene {
+    constructor() { super("Story"); }
+
+    create(data) {
+      const cards = (data.cards || []).filter(k => storyText(k));
+      const next = data.next || { scene: "Title", data: {} };
+      if (cards.length === 0) { this.scene.start(next.scene, next.data); return; }
+
+      this.cameras.main.setBackgroundColor(COLORS.bg);
+      const t = this.add.text(W / 2, H / 2 - 10, storyText(cards[0]), {
+        fontFamily: "Georgia, serif", fontSize: "26px", color: COLORS.light,
+        align: "center", lineSpacing: 12, wordWrap: { width: 760 }
+      }).setOrigin(0.5).setAlpha(0);
+      const hint = this.add.text(W / 2, H - 50, "Enter", {
+        fontFamily: "monospace", fontSize: "14px", color: "#6B7286"
+      }).setOrigin(0.5).setAlpha(0);
+
+      this.tweens.add({ targets: t, alpha: 1, duration: 900 });
+      this.tweens.add({ targets: hint, alpha: 1, duration: 900, delay: 900 });
+
+      let ready = false;
+      this.time.delayedCall(400, () => { ready = true; });
+      this.input.keyboard.on("keydown", e => {
+        if (e.code === "KeyM") { this.sound.mute = !this.sound.mute; return; }
+        if (e.code !== "Enter" || !ready) return;
+        ready = false;
+        const rest = cards.slice(1);
+        this.cameras.main.fadeOut(300, 17, 20, 28);
+        this.cameras.main.once("camerafadeoutcomplete", () => {
+          if (rest.length) this.scene.restart({ cards: rest, next });
+          else this.scene.start(next.scene, next.data);
+        });
+      });
     }
   }
 
@@ -337,9 +426,9 @@
           fx("onWin");
           return this.wait(800).then(() => this.nextLevel());
         case "swap":
-          // B6 adds the full swap scene. For now, go straight on.
+          // Level 8: the swap card, then Act 3's card, then Level 9. (B6 adds TOGETHER and the control card.)
           this.locked = true;
-          return this.wait(800).then(() => this.nextLevel());
+          return this.wait(800).then(() => this.nextLevel(["swap", "act3"]));
         case "ending":
           // B7 adds the ending screens.
           this.locked = true;
@@ -369,13 +458,18 @@
       this.tweens.add({ targets: this.hintText, alpha: 1, duration: 400, hold: 3000, yoyo: true });
     }
 
-    nextLevel() {
+    // Go to the next level with state.carry. When the act changes, its story card comes first.
+    nextLevel(cardsOverride) {
       const carry = this.state.carry;
-      if (this.index + 1 < this.levels.length) {
-        this.scene.start("Level", { index: this.index + 1, carry });
-      } else {
-        this.scene.start("End", {});
-      }
+      const next = this.levels[this.index + 1];
+      if (!next) { this.scene.start("End", {}); return; }
+
+      let cards = cardsOverride || [];
+      if (!cardsOverride && next.act !== this.level.act) cards = ["act" + next.act];
+
+      const target = { scene: "Level", data: { index: this.index + 1, carry } };
+      if (cards.length) this.scene.start("Story", { cards, next: target });
+      else this.scene.start(target.scene, target.data);
     }
   }
 
@@ -385,8 +479,8 @@
     create(data) {
       const msg = data.ending ? "Ending: " + data.ending : "No more levels yet";
       this.add.text(W / 2, H / 2 - 20, msg, { fontFamily: "monospace", fontSize: "24px", color: COLORS.light }).setOrigin(0.5);
-      this.add.text(W / 2, H / 2 + 24, "Press Enter to play again", { fontFamily: "monospace", fontSize: "16px", color: "#B8BCC8" }).setOrigin(0.5);
-      this.input.keyboard.once("keydown-ENTER", () => this.scene.start("Level", { index: 0 }));
+      this.add.text(W / 2, H / 2 + 24, "Press Enter for the title", { fontFamily: "monospace", fontSize: "16px", color: "#B8BCC8" }).setOrigin(0.5);
+      this.input.keyboard.once("keydown-ENTER", () => this.scene.start("Title"));
     }
   }
 
@@ -398,6 +492,6 @@
     backgroundColor: "#11141C",
     pixelArt: true,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-    scene: [BootScene, LevelScene, EndScene]
+    scene: [BootScene, TitleScene, StoryScene, LevelScene, EndScene]
   });
 })();

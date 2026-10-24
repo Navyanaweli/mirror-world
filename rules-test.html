@@ -1,768 +1,119 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mirror World — Rules Test</title>
-  <style>
-    body {
-      margin: 0;
-      padding: 16px;
-      background: #11141C;
-      color: #EAE4D6;
-      font-family: system-ui, sans-serif;
-      font-size: 14px;
-    }
-    h1 { font-size: 18px; margin: 0 0 12px; }
-    h2 { font-size: 15px; margin: 16px 0 6px; color: #9FD6E0; }
-    .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-    .col { flex: 1 1 380px; min-width: 0; }
-    .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
-    select, button, textarea {
-      font: inherit;
-      background: #232A3A;
-      color: #EAE4D6;
-      border: 1px solid #4A5570;
-      border-radius: 4px;
-      padding: 4px 8px;
-    }
-    button { cursor: pointer; }
-    button:hover { border-color: #9FD6E0; }
-    textarea { width: 100%; box-sizing: border-box; font-family: monospace; }
-    pre {
-      font-family: Consolas, "Courier New", monospace;
-      background: #232A3A;
-      border: 1px solid #4A5570;
-      border-radius: 4px;
-      padding: 10px;
-      margin: 0;
-      overflow-x: auto;
-      white-space: pre;
-    }
-    #board { font-size: 26px; line-height: 1.15; display: inline-block; }
-    #info, #events, #log, #out { font-size: 13px; white-space: pre-wrap; }
-    #log, #out { max-height: 420px; overflow-y: auto; }
-    .hint { color: #9aa3b8; font-size: 12px; }
-    .pass { color: #8fd69a; }
-    .fail { color: #ff8a80; }
-    .warn { color: #E9B872; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rules Test</title>
+<style>
+  :root { --bg: #11141C; --panel: #1A1F2B; --text: #EAE4D6; --dim: #8C93A3; --silver: #9FD6E0; --warm: #E9B872; --bad: #E07A72; --good: #8FD19E; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  select, button, input { background: var(--panel); color: var(--text); border: 1px solid #333A4A; border-radius: 6px; padding: 6px 10px; font: inherit; }
+  button { cursor: pointer; }
+  input { min-width: 280px; }
+  pre { background: var(--panel); padding: 12px 16px; border-radius: 8px; font: 22px/1.25 ui-monospace, Consolas, monospace; letter-spacing: 2px; margin: 0 0 12px; overflow-x: auto; }
+  .t { color: var(--warm); font-weight: 700; } .o { color: var(--silver); font-weight: 700; }
+  .info { color: var(--dim); white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .pass { color: var(--good); } .fail { color: var(--bad); }
+  #results { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+</style>
 </head>
 <body>
-  <h1>Mirror World — Rules Test</h1>
+<h1>Mirror World: rules test (no graphics)</h1>
+<div class="row">
+  <select id="pick"></select>
+  <span class="info">Arrows/WASD move · Z undo · R restart · <span class="t">T</span> Theo · <span class="o">O</span> other</span>
+</div>
+<pre id="board"></pre>
+<div id="info" class="info"></div>
+<div class="row" style="margin-top:12px">
+  <input id="keys" placeholder="Replay keys, e.g. L L D R">
+  <button id="replay">Replay</button>
+  <button id="checkAll">Check all levels</button>
+</div>
+<div id="results"></div>
 
-  <div class="cols">
-    <div class="col">
-      <div class="bar">
-        <select id="levelPick"></select>
-        <button id="loadBtn">Load level</button>
-        <button id="nextBtn">Next level (keeps carry)</button>
-      </div>
-      <div class="hint">Arrows/WASD move · Space = LOOK (Acts 1–2) / FOLLOW (Act 3) · Shift = RESIST · Z = UNDO · R = RESTART · Enter = reload level (page only)</div>
-      <h2>Board</h2>
-      <pre id="board"></pre>
-      <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame · ! glitch tile · o Sam's next steps (* = frame turn)</div>
-      <h2>How to play this level</h2>
-      <div id="guide" class="hint" style="font-size: 13px; max-width: 640px;"></div>
-      <h2>State</h2>
-      <pre id="info"></pre>
-      <h2>Last events</h2>
-      <pre id="events"></pre>
-      <h2>Log</h2>
-      <pre id="log"></pre>
-    </div>
+<script src="src/levels.js"></script>
+<script src="src/levels/level01.js"></script>
+<script src="src/levels/level02.js"></script>
+<script src="src/levels/level03.js"></script>
+<script src="src/levels/level04.js"></script>
+<script src="src/levels/level05.js"></script>
+<script src="src/levels/level06.js"></script>
+<script src="src/levels/level07.js"></script>
+<script src="src/levels/level08.js"></script>
+<script src="src/levels/level09.js"></script>
+<script src="src/levels/level10.js"></script>
+<script src="src/levels/level11.js"></script>
+<script src="src/levels/level12.js"></script>
+<script src="src/rules.js"></script>
+<script>
+  const levels = LEVELS.slice().sort((a, b) => a.number - b.number);
+  const pick = document.getElementById("pick");
+  levels.forEach((L, i) => { const o = document.createElement("option"); o.value = i; o.textContent = L.number + " · " + L.name; pick.appendChild(o); });
+  let level = levels[0], state = Rules.load(level), lastEvents = state.startEvents;
 
-    <div class="col">
-      <h2>Replay</h2>
-      <textarea id="replayInput" rows="3" placeholder="R R LOOK L"></textarea>
-      <div class="bar">
-        <button id="replayBtn">Replay</button>
-        <button id="solutionBtn">Paste this level's solution</button>
-      </div>
-      <div class="bar">
-        <button id="checkAllBtn">Check all levels</button>
-        <button id="checkChainBtn">Check Act 2 chain</button>
-      </div>
-      <pre id="out">Results show here.</pre>
-    </div>
-  </div>
-
-  <script src="src/levels.js"></script>
-  <script src="src/levels/level01.js"></script>
-  <script src="src/levels/level02.js"></script>
-  <script src="src/levels/level03.js"></script>
-  <script src="src/levels/level04.js"></script>
-  <script src="src/levels/level05.js"></script>
-  <script src="src/levels/level06.js"></script>
-  <script src="src/levels/level07.js"></script>
-  <script src="src/levels/level08.js"></script>
-  <script src="src/levels/level09.js"></script>
-  <script src="src/levels/level10.js"></script>
-  <script src="src/levels/level11.js"></script>
-  <script src="src/levels/level12.js"></script>
-  <script src="src/rules.js"></script>
-
-  <script>
-  // Tiny rooms, one per mechanic, so rules can be tested before real levels exist.
-  // Each has a solution so "Check all levels" covers it too.
-  const TEST_LEVELS = [
-    {
-      number: 901, name: "Test: mirror and walls", act: 1,
-      // Full-opposite mirror: Up moves T up and R down. Left: T hits the wall, R moves right.
-      // Right x4: R reaches G after 2, then the wall holds it while T catches up.
-      map: [
-        "#######|#######",
-        "#.....#|##G.R.#",
-        "#T...G#|#.....#",
-        "#######|#######"
-      ],
-      events: [],
-      solution: "R R R R",
-      checks: [
-        { about: "Up moves T up and R down", inputs: "U", want: { person: { x: 1, y: 1 }, reflection: { x: 4, y: 2 } } },
-        { about: "Left: T blocked by the wall, R moves right", inputs: "L", want: { person: { x: 1, y: 2 }, reflection: { x: 5, y: 1 } } }
-      ]
-    },
-    {
-      number: 902, name: "Test: up and down", act: 1,
-      // Up and down are swapped too. The bottom wall stops R while T walks onto G.
-      map: [
-        "#####|#####",
-        "#..G#|#R..#",
-        "#...#|#...#",
-        "#T..#|#G..#",
-        "#####|#####"
-      ],
-      events: [],
-      solution: "U U R R",
-      checks: [
-        { about: "Up sends R down", inputs: "U", want: { person: { x: 1, y: 2 }, reflection: { x: 1, y: 2 } } }
-      ]
-    },
-    {
-      number: 903, name: "Test: look is a still turn", act: 2, look: true,
-      map: [
-        "#####|#####",
-        "#T.G#|#G.R#",
-        "#####|#####"
-      ],
-      events: [],
-      solution: "LOOK R R"
-    },
-    {
-      number: 904, name: "Test: plate and door", act: 1,
-      // T's plate (left) opens R's door (right). Turn 2: R bumps the still-closed door,
-      // then it opens. Turn 3: R steps into the doorway, so it stays open after T steps off.
-      // Turn 4: R leaves the doorway, the door closes, both on G.
-      map: [
-        "#######|#######",
-        "#T.a.G#|#GA.R.#",
-        "#######|#######"
-      ],
-      events: [],
-      solution: "R R R R",
-      checks: [
-        { about: "door closes when T steps off the plate", inputs: "R R L", want: { openDoors: [], events: { "door:A": 2 } } },
-        { about: "undo restores the door", inputs: "R R UNDO", want: { openDoors: [], turn: 1 } }
-      ]
-    },
-    {
-      number: 905, name: "Test: spikes", act: 1,
-      // Right from the start steps T onto the spikes: fail. The solution goes round below.
-      map: [
-        "######|######",
-        "#T^.G#|#....#",
-        "#....#|#G..R#",
-        "######|######"
-      ],
-      events: [],
-      solution: "D R R U R",
-      checks: [
-        { about: "spikes fail the level", inputs: "R", want: { status: "failed", events: { "fail:spikes": 1 } } },
-        { about: "after a fail only RESTART works", inputs: "R UNDO L RESTART", want: { status: "playing", turn: 0 } }
-      ]
-    },
-    {
-      number: 906, name: "Test: stoppable disobey", act: 2, look: true,
-      // Stepping R onto the glitch tile (4,2) warns (shimmer). Next move it goes Up instead, unless you Look.
-      map: [
-        "#######|#######",
-        "#T...G#|#.....#",
-        "#.....#|#G...R#",
-        "#######|#######"
-      ],
-      events: [
-        { at: { who: "reflection", x: 4, y: 2 }, do: "disobey", dir: "U", kind: "stoppable", warn: true }
-      ],
-      solution: "R LOOK R R R",
-      checks: [
-        { about: "Look cancels it: no crack, no Mercy", inputs: "R LOOK R R R", want: { status: "won", cracks: 0, mercy: 0, events: { "moment:shimmer": 1 } } },
-        { about: "the glitch tile shows until it fires", inputs: "", want: { glitches: [{ who: "reflection", x: 4, y: 2, dir: "U", kind: "stoppable" }] } },
-        { about: "the shimmer says which way it will pull", inputs: "R", want: { glitches: [], events: { "moment:shimmer": 1 } }, shimmerDir: "U" },
-        { about: "letting it happen: 1 crack, 1 Mercy", inputs: "R R U R R R", want: { status: "won", cracks: 1, mercy: 1, events: { "crack:1": 1 } } },
-        { about: "undo rolls back the crack and Mercy", inputs: "R R UNDO", want: { cracks: 0, mercy: 0, turn: 1 } },
-        { about: "undo un-fires the trigger, so it fires again", inputs: "R UNDO R", want: { events: { "moment:shimmer": 2 } } },
-        { about: "cracks carry in Act 2, and the 5th breaks the glass", carry: { cracks: 4, mercy: 0, undoLockUsed: false }, inputs: "R R",
-          want: { cracks: 0, events: { "crack:5": 1, "glassBreak": 1 } } }
-      ]
-    },
-    {
-      number: 907, name: "Test: required disobey", act: 2, look: true,
-      // No warning. Looking at it cancels it; after the next RESTART comes the hint.
-      map: [
-        "#######|#######",
-        "#T...G#|#.....#",
-        "#.....#|#G...R#",
-        "#######|#######"
-      ],
-      events: [
-        { at: { who: "reflection", x: 4, y: 2 }, do: "disobey", dir: "U", kind: "required", warn: false }
-      ],
-      solution: "R R U R R R",
-      checks: [
-        { about: "required: a crack but no Mercy", inputs: "R R U R R R", want: { status: "won", cracks: 1, mercy: 0, events: { "moment:shimmer": 0 } } },
-        { about: "looking at it, then RESTART, gives the hint", inputs: "R LOOK RESTART", want: { turn: 0, events: { "hint:Maybe let it.": 1 } } }
-      ]
-    },
-    {
-      number: 908, name: "Test: lag 2", act: 2, lag: 2,
-      // The reflection stays still for 2 turns, then copies Theo's moves 2 turns late.
-      map: [
-        "#######|#######",
-        "#T...G#|#G...R#",
-        "#######|#######"
-      ],
-      events: [],
-      solution: "R R R R R R",
-      checks: [
-        { about: "still for the first 2 turns", inputs: "R R", want: { person: { x: 3, y: 1 }, reflection: { x: 5, y: 1 } } },
-        { about: "then mirrors Theo's move from 2 turns ago", inputs: "R R R", want: { reflection: { x: 4, y: 1 } } }
-      ]
-    },
-    {
-      number: 909, name: "Test: undo lock", act: 2,
-      // Theo stepping on (2,1) locks Undo there. The first refused Undo shows IT REMEMBERS, once ever.
-      map: [
-        "#######|#######",
-        "#T...G#|#G...R#",
-        "#######|#######"
-      ],
-      events: [
-        { at: { who: "person", x: 2, y: 1 }, do: "undoLock" }
-      ],
-      solution: "R R R R",
-      checks: [
-        { about: "undo can't go back past the lock", inputs: "R R UNDO UNDO UNDO", want: { turn: 1, events: { "text:IT REMEMBERS": 1 } } },
-        { about: "only once per playthrough (survives restart)", inputs: "R R UNDO UNDO RESTART R UNDO", want: { turn: 0, events: { "text:IT REMEMBERS": 1 } } }
-      ]
-    },
-    {
-      number: 910, name: "Test: slip and text", act: 2,
-      // The level opens with a 2-turn slip: your keys move the reflection and Theo mirrors it.
-      // The reflection reaching (3,1) shows a message.
-      map: [
-        "#######|#######",
-        "#T...G#|#G...R#",
-        "#######|#######"
-      ],
-      events: [
-        { at: "start", do: "slip", turns: 2 },
-        { at: { who: "reflection", x: 3, y: 1 }, do: "text", words: "HELLO", side: "right", mirrored: true }
-      ],
-      solution: "L L R R",
-      checks: [
-        { about: "during slip, Right moves the reflection right (into the wall)", inputs: "R", want: { person: { x: 1, y: 1 }, reflection: { x: 5, y: 1 }, slipTurns: 1 } },
-        { about: "the text fires once, and again after undo", inputs: "L L UNDO L", want: { events: { "text:HELLO": 2 } } },
-        { about: "RESTART plays the start events again", inputs: "L RESTART", want: { slipTurns: 2, events: { "moment:slip": 2 } } }
-      ]
-    },
-    {
-      number: 911, name: "Test: Level 8 swap", act: 2, look: true, swap: true,
-      // Winning smashes the glass: glassBreak then swap, instead of win. Cracks go to 0.
-      map: [
-        "#######|#######",
-        "#T...G#|#G...R#",
-        "#######|#######"
-      ],
-      events: [],
-      solution: "R R R R",
-      checks: [
-        { about: "glassBreak then swap, no win, cracks 0", carry: { cracks: 3, mercy: 1, undoLockUsed: true }, inputs: "R R R R",
-          want: { status: "won", cracks: 0, mercy: 1, events: { "glassBreak": 1, "swap": 1, "win": 0 } } }
-      ]
-    },
-    {
-      number: 912, name: "Test: Act 3 follow, resist, break", act: 3, will: 2,
-      // Sam (left) walks R R R R. Theo (right) must end on G. Sam looks on turn 3.
-      map: [
-        "#######|#######",
-        "#.....#|#.....#",
-        "#T....#|#..G.R#",
-        "#######|#######"
-      ],
-      samRoute: "R R R R",
-      samLooks: [3],
-      message: "HELLO SAM",
-      events: [
-        { at: "start", do: "text", words: "IS SOMEONE THERE?", side: "left", mirrored: true },
-        { turn: 2, do: "blink" }
-      ],
-      solution: "FOLLOW FOLLOW FOLLOW R",
-      checks: [
-        { about: "footprints and eye at the start", inputs: "",
-          want: { samLooking: false, footprints: [{ x: 2, y: 2, glow: false }, { x: 3, y: 2, glow: false }, { x: 4, y: 2, glow: false }] } },
-        { about: "eye shows the turn before Sam looks", inputs: "FOLLOW FOLLOW", want: { samLooking: true, events: { "moment:blink": 1 } } },
-        { about: "Resist: Theo stays, costs 1 Will, +1 crack", inputs: "RESIST",
-          want: { person: { x: 2, y: 2 }, reflection: { x: 5, y: 2 }, will: 1, cracks: 1, events: { "moment:shimmer": 1 } } },
-        { about: "Break: Theo moves his own way", inputs: "U", want: { reflection: { x: 5, y: 1 }, will: 1, cracks: 1 } },
-        { about: "disobeying while Sam looks fails as seen", inputs: "FOLLOW FOLLOW RESIST", want: { status: "failed", events: { "fail:seen": 1 } } },
-        { about: "with 0 Will, Break acts like Follow", inputs: "RESIST U FOLLOW R",
-          want: { reflection: { x: 3, y: 1 }, will: 0, cracks: 2, status: "failed", events: { "fail:route": 1 } } },
-        { about: "only following ends off the goal: route fail", inputs: "FOLLOW FOLLOW FOLLOW FOLLOW", want: { status: "failed", events: { "fail:route": 1 } } },
-        { about: "winning sends the message twice, then win", inputs: "FOLLOW FOLLOW FOLLOW R",
-          want: { status: "won", will: 1, events: { "text:HELLO SAM": 2, "win": 1, "text:IS SOMEONE THERE?": 1 } } },
-        { about: "undo gives the Will back", inputs: "RESIST UNDO", want: { will: 2, cracks: 0, turn: 0 } }
-      ]
-    }
-  ];
-
-  // Extra checks run on real levels (kept here so the level files stay clean).
-  const EXTRA_CHECKS = {
-    12: [
-      { about: "Sam's note opens the level", inputs: "", want: { events: { "text:IS SOMEONE THERE?": 1 } } },
-      { about: "the frame step glows in the footprints", inputs: "FOLLOW FOLLOW FOLLOW FOLLOW",
-        want: { footprints: [{ x: 5, y: 2, glow: false }, { x: 5, y: 3, glow: false }, { x: 4, y: 3, glow: true }] } },
-      { about: "disobey while Sam looks: seen", inputs: "FOLLOW FOLLOW RESIST", want: { status: "failed", events: { "fail:seen": 1 } } },
-      { about: "1-4 Will, no frame: NOT TONIGHT, then fail", inputs: "RESIST FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW",
-        want: { status: "failed", events: { "text:NOT TONIGHT": 1, "fail:not-tonight": 1 } } },
-      { about: "the hint one turn before Sam leaves", inputs: "FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW",
-        want: { events: { "hint:Sam is about to leave...": 1 } } },
-      { about: "4 cracks: ONE MORE and strain", inputs: "RESIST RESIST FOLLOW RESIST RESIST",
-        want: { cracks: 4, events: { "text:ONE MORE": 1, "moment:strain": 1 } } },
-      { about: "Take: glassBreak then ending, cracks back to 0", inputs: "RESIST RESIST FOLLOW RESIST RESIST RESIST",
-        want: { status: "won", ending: "take", cracks: 0, events: { "glassBreak": 1, "ending:take": 1 } } },
-      { about: "Mercy 1+: TOGETHER before the frame turn", carry: { cracks: 0, mercy: 2, undoLockUsed: true },
-        inputs: "D FOLLOW FOLLOW FOLLOW D R", want: { events: { "text:TOGETHER": 1 } } },
-      { about: "Mercy 0: no TOGETHER", inputs: "D FOLLOW FOLLOW FOLLOW D R", want: { events: { "text:TOGETHER": 0 } } },
-      { about: "the ending carries Mercy", carry: { cracks: 0, mercy: 2, undoLockUsed: true },
-        inputs: "D FOLLOW FOLLOW FOLLOW D R FOLLOW", want: { ending: "break", mercy: 2 } }
-    ]
-  };
-
-  const VALID_INPUTS =["U", "D", "L", "R", "LOOK", "FOLLOW", "RESIST", "UNDO", "RESTART"];
-  const $ = id => document.getElementById(id);
-
-  // Real levels sorted by number, then the test rooms.
-  const realLevels = (typeof LEVELS !== "undefined" ? LEVELS : []).slice().sort((a, b) => a.number - b.number);
-  const allLevels = realLevels.concat(TEST_LEVELS);
-
-  let levelIndex = 0;
-  let loadCarry = undefined;   // the carry this level was loaded with (for Replay)
-  let state = null;
-  let logLines = [];
-
-  function levelLabel(level) {
-    return level.number > 900 ? level.name : "Level " + level.number + " — " + (level.name || "?");
-  }
-
-  function fmtPos(p) { return p ? "(" + p.x + "," + p.y + ")" : "-"; }
-
-  function fmtEvent(e) {
-    const extra = Object.keys(e).filter(k => k !== "type").map(k => {
-      const v = e[k];
-      if (v && typeof v === "object" && "x" in v && "y" in v) return k + " " + fmtPos(v);
-      return k + " " + JSON.stringify(v);
+  function draw() {
+    const out = [];
+    level.map.forEach((row, y) => {
+      const halves = row.split("|");
+      const line = halves.map((h, si) => {
+        const side = si === 0 ? "left" : "right";
+        return [...h].map((c, x) => {
+          if (state.theo.side === side && state.theo.x === x && state.theo.y === y) return '<span class="t">T</span>';
+          if (state.other.side === side && state.other.x === x && state.other.y === y) return '<span class="o">O</span>';
+          if (c === "T" || c === "O") return ".";
+          if (c === "%" && state.usedCracks.indexOf(side + ":" + x + ":" + y) !== -1) return ".";
+          if ((c === "A" || c === "B") && state.openDoors.indexOf(c) !== -1) return "/";
+          return c;
+        }).join("");
+      }).join("|");
+      out.push(line);
     });
-    return e.type + (extra.length ? "  " + extra.join(", ") : "");
+    document.getElementById("board").innerHTML = out.join("\n");
+    document.getElementById("info").textContent =
+      "turn " + state.turn + " · status " + state.status + (state.ending ? " · ending " + state.ending : "") +
+      " · open doors [" + state.openDoors.join(",") + "] · used cracks " + state.usedCracks.length +
+      "\nlast events: " + JSON.stringify(lastEvents);
   }
 
-  function fmtEvents(events) {
-    return events && events.length ? events.map(fmtEvent).join("\n") : "(none)";
-  }
+  function send(input) { const r = Rules.step(state, input); state = r.state; lastEvents = r.events; draw(); }
 
-  // Draw both halves as text, side by side.
-  function drawBoard(s) {
-    const rows = s.map.map(row => {
-      const parts = row.split("|");
-      return [(parts[0] || "").split(""), (parts[1] || "").split("")];
-    });
-    rows.forEach(r => {
-      r[0] = r[0].map(ch => ch === "T" ? "." : ch);
-      r[1] = r[1].map(ch => ch === "R" ? "." : ch);
-      [0, 1].forEach(side => {
-        r[side] = r[side].map(ch => (ch === "A" || ch === "B") && s.openDoors.indexOf(ch) !== -1 ? "/" : ch);
-      });
-    });
-    (s.boxes || []).forEach(b => {
-      const side = b.side === "left" ? 0 : 1;
-      if (rows[b.y] && rows[b.y][side][b.x] !== undefined) rows[b.y][side][b.x] = "x";
-    });
-    // Glitch tiles still waiting to fire: !
-    (s.glitches || []).forEach(g => {
-      const side = g.who === "person" ? 0 : 1;
-      if (rows[g.y] && rows[g.y][side][g.x] !== undefined) rows[g.y][side][g.x] = "!";
-    });
-    // Sam's next footprints: o, or * for the glowing frame-turn step.
-    (s.footprints || []).forEach(f => {
-      if (rows[f.y] && rows[f.y][0][f.x] !== undefined) rows[f.y][0][f.x] = f.glow ? "*" : "o";
-    });
-    if (rows[s.person.y]) rows[s.person.y][0][s.person.x] = "T";
-    if (rows[s.reflection.y]) rows[s.reflection.y][1][s.reflection.x] = "R";
-    return rows.map(r => r[0].join("") + "|" + r[1].join("")).join("\n");
-  }
+  pick.addEventListener("change", () => { level = levels[+pick.value]; state = Rules.load(level); lastEvents = state.startEvents; draw(); pick.blur(); });
 
-  function drawInfo(s) {
-    const mercy = s.carry && s.carry.mercy !== undefined ? s.carry.mercy : "?";
-    return [
-      "act " + s.act + "   turn " + s.turn + "   status " + s.status,
-      "cracks " + s.cracks + "   will " + (s.will === null ? "—" : s.will) + "   mercy " + mercy,
-      "look " + s.look + "   ending " + s.ending + "   slipTurns " + s.slipTurns,
-      "samLooking " + s.samLooking + "   footprints " + JSON.stringify(s.footprints),
-      "person " + fmtPos(s.person) + "   reflection " + fmtPos(s.reflection) + "   openDoors " + JSON.stringify(s.openDoors),
-      "carry " + JSON.stringify(s.carry)
-    ].join("\n");
-  }
-
-  // The parts of the state that show whether an input did anything.
-  function snapshotForLog(s) {
-    const copy = {};
-    Object.keys(s).forEach(k => { if (k[0] !== "_" && k !== "startEvents") copy[k] = s[k]; });
-    copy.historyLength = s._history ? s._history.length : 0;
-    return copy;
-  }
-
-  function statusNote(s) {
-    if (s.status === "won") return "\n\nWON. The rules now ignore every input, even Z and R (design v3).\nPress Enter (or Load level) to play this level again.";
-    if (s.status === "failed") return "\n\nFAILED. Only R (RESTART) works now.";
-    return "";
-  }
-
-  function render(lastEvents) {
-    if (!state) return;
-    $("board").textContent = drawBoard(state);
-    $("info").textContent = drawInfo(state) + statusNote(state);
-    if (lastEvents !== undefined) $("events").textContent = fmtEvents(lastEvents);
-    $("log").textContent = logLines.slice(-40).join("\n");
-    $("log").scrollTop = $("log").scrollHeight;
-  }
-
-  function showError(where, err) {
-    console.error(err);
-    logLines.push("ERROR in " + where + ": " + (err && err.message ? err.message : err));
-    $("events").innerHTML = '<span class="fail"></span>';
-    $("events").firstChild.textContent = "ERROR in " + where + ": " + (err && err.message ? err.message : err);
-    $("log").textContent = logLines.slice(-40).join("\n");
-  }
-
-  function loadLevel(index, carry) {
-    levelIndex = index;
-    $("levelPick").value = String(index);
-    loadCarry = carry ? JSON.parse(JSON.stringify(carry)) : undefined;
-    $("guide").textContent = allLevels[index].instructions || "(no instructions for this level yet)";
-    try {
-      state = Rules.load(allLevels[index], carry);
-    } catch (err) {
-      state = null;
-      showError("Rules.load", err);
-      return;
-    }
-    logLines = ["Loaded " + levelLabel(allLevels[index]) + (carry ? "  carry " + JSON.stringify(carry) : "")];
-    const start = state.startEvents || [];
-    if (start.length) logLines.push("startEvents: " + start.map(fmtEvent).join(" | "));
-    render(start);
-  }
-
-  function send(input) {
-    if (!state) return;
-    try {
-      const before = JSON.stringify(snapshotForLog(state));
-      const result = Rules.step(state, input);
-      state = result.state;
-      const ignored = !result.events.length && JSON.stringify(snapshotForLog(state)) === before;
-      logLines.push(input.padEnd(7) + " turn " + state.turn + "  " + state.status + "  T" + fmtPos(state.person) +
-        " R" + fmtPos(state.reflection) + "   " +
-        (result.events.length ? result.events.map(fmtEvent).join(" | ") : (ignored ? "(ignored by the rules)" : "-")));
-      render(result.events);
-    } catch (err) {
-      showError("Rules.step(" + input + ")", err);
-    }
-  }
-
-  // ---------- Replay check ----------
-
-  function parseInputs(text) {
-    const tokens = String(text || "").trim().toUpperCase().split(/\s+/).filter(Boolean);
-    const bad = tokens.filter(t => VALID_INPUTS.indexOf(t) === -1);
-    return { tokens, bad };
-  }
-
-  // Play inputs through the real rules from a fresh load. Never throws.
-  function play(level, carry, text) {
-    const run = { steps: [], state: null, error: null, mutated: false, wonAt: null };
-    const parsed = parseInputs(text);
-    if (parsed.bad.length) {
-      run.error = "unknown input(s): " + parsed.bad.join(", ");
-      return run;
-    }
-    try {
-      let s = Rules.load(level, carry);
-      run.startEvents = s.startEvents || [];
-      parsed.tokens.forEach((input, i) => {
-        const before = JSON.stringify(s);
-        const result = Rules.step(s, input);
-        if (JSON.stringify(s) !== before) run.mutated = true;   // step must never change its input
-        s = result.state;
-        run.steps.push({ input, events: result.events, state: s });
-        if (run.wonAt === null && s.status === "won") run.wonAt = i + 1;
-      });
-      run.state = s;
-    } catch (err) {
-      run.error = (err && err.message) ? err.message : String(err);
-    }
-    return run;
-  }
-
-  function summary(s) {
-    const mercy = s.carry ? s.carry.mercy : "?";
-    return "status " + s.status + " · cracks " + s.cracks + " · mercy " + mercy +
-      (s.will === null ? "" : " · will " + s.will) + " · ending " + s.ending;
-  }
-
-  function writeOut(lines) {
-    // lines: [{ text, cls }]
-    const out = $("out");
-    out.innerHTML = "";
-    lines.forEach(l => {
-      const span = document.createElement("span");
-      if (l.cls) span.className = l.cls;
-      span.textContent = l.text + "\n";
-      out.appendChild(span);
-    });
-  }
-
-  function doReplay() {
-    const level = allLevels[levelIndex];
-    const run = play(level, loadCarry, $("replayInput").value);
-    const lines = [{ text: "Replay: " + levelLabel(level) }];
-    if (run.startEvents && run.startEvents.length) lines.push({ text: "start  " + fmtEvents(run.startEvents).replace(/\n/g, " | ") });
-    run.steps.forEach((st, i) => {
-      lines.push({
-        text: String(i + 1).padStart(3) + ". " + st.input.padEnd(7) + " turn " + st.state.turn + "  " + st.state.status +
-          "  T" + fmtPos(st.state.person) + " R" + fmtPos(st.state.reflection) +
-          "\n       " + (st.events.length ? st.events.map(fmtEvent).join(" | ") : "-")
-      });
-    });
-    if (run.error) lines.push({ text: "ERROR: " + run.error, cls: "fail" });
-    if (run.mutated) lines.push({ text: "ERROR: step changed the state it was given", cls: "fail" });
-    if (run.state) {
-      lines.push({ text: "" });
-      lines.push({ text: "Final: " + summary(run.state), cls: run.state.status === "won" ? "pass" : (run.state.status === "failed" ? "fail" : "") });
-      // Show the end position on the board too.
-      state = run.state;
-      logLines.push("Replayed " + run.steps.length + " inputs → " + run.state.status);
-      render(run.steps.length ? run.steps[run.steps.length - 1].events : []);
-    }
-    writeOut(lines);
-  }
-
-  // Pass/fail for one solution run.
-  function judge(run, wantEnding) {
-    if (run.error) return { ok: false, why: "error: " + run.error };
-    if (run.mutated) return { ok: false, why: "step changed the state it was given" };
-    const s = run.state;
-    if (wantEnding) {
-      if (s.ending === wantEnding) return { ok: true, why: "ending " + s.ending + " · " + summary(s) };
-      return { ok: false, why: "wanted ending " + wantEnding + ", got " + summary(s) };
-    }
-    if (s.status !== "won") return { ok: false, why: "ended " + summary(s) };
-    let why = summary(s);
-    if (run.wonAt !== null && run.wonAt < run.steps.length) {
-      why += " (won at input " + run.wonAt + " of " + run.steps.length + ", extra inputs ignored)";
-    }
-    return { ok: true, why };
-  }
-
-  // "crack:1", "moment:shimmer", "text:IT REMEMBERS", "fail:spikes", "door:A", "win" ...
-  function eventKey(e) {
-    const detail = [e.kind, e.reason, e.words, e.cracks, e.letter, e.which].find(v => v !== undefined);
-    return detail === undefined ? e.type : e.type + ":" + detail;
-  }
-
-  // A test-room check: play its inputs and compare the result with "want". Returns the problems.
-  function runCheck(level, check) {
-    const run = play(level, check.carry, check.inputs);
-    if (run.error) return ["error: " + run.error];
-    if (run.mutated) return ["step changed the state it was given"];
-    const s = run.state;
-    const want = check.want || {};
-    const problems = [];
-    const actual = {
-      status: s.status, turn: s.turn, cracks: s.cracks, mercy: s.carry ? s.carry.mercy : undefined,
-      slipTurns: s.slipTurns, person: s.person, reflection: s.reflection, openDoors: s.openDoors, ending: s.ending,
-      will: s.will, samLooking: s.samLooking, footprints: s.footprints, glitches: s.glitches
-    };
-    if (check.shimmerDir) {
-      const all = (run.startEvents || []).concat(...run.steps.map(st => st.events));
-      const sh = all.find(e => e.type === "moment" && e.kind === "shimmer");
-      if (!sh || sh.dir !== check.shimmerDir) problems.push("shimmer dir is " + (sh ? sh.dir : "missing") + ", wanted " + check.shimmerDir);
-    }
-    Object.keys(want).forEach(k => {
-      if (k === "events") return;
-      if (JSON.stringify(actual[k]) !== JSON.stringify(want[k])) {
-        problems.push(k + " is " + JSON.stringify(actual[k]) + ", wanted " + JSON.stringify(want[k]));
-      }
-    });
-    if (want.events) {
-      const counts = {};
-      (run.startEvents || []).concat(...run.steps.map(st => st.events)).forEach(e => {
-        const key = eventKey(e);
-        counts[key] = (counts[key] || 0) + 1;
-        counts[e.type] = counts[e.type] || 0;
-        if (key !== e.type) counts[e.type] += 1;
-      });
-      Object.keys(want.events).forEach(key => {
-        const got = counts[key] || 0;
-        if (got !== want.events[key]) problems.push(key + " happened " + got + "x, wanted " + want.events[key] + "x");
-      });
-    }
-    return problems;
-  }
-
-  function doCheckAll() {
-    const lines = [{ text: "Check all levels" }];
-    let passed = 0, failed = 0;
-    function runChecks(level) {
-      const extra = level.number > 900 ? [] : (EXTRA_CHECKS[level.number] || []);
-      (level.checks || []).concat(extra).forEach(check => {
-        const problems = runCheck(level, check);
-        const ok = problems.length === 0;
-        ok ? passed++ : failed++;
-        lines.push({
-          text: "  " + (ok ? "PASS " : "FAIL ") + check.about + "  [" + check.inputs + "]" + (ok ? "" : ": " + problems.join("; ")),
-          cls: ok ? "pass" : "fail"
-        });
-      });
-    }
-    allLevels.forEach(level => {
-      const label = levelLabel(level);
-      if (level.final || level.solutions) {
-        const sols = level.solutions || {};
-        ["take", "break", "stay"].forEach(key => {
-          if (!sols[key]) {
-            // The Level 12 safety net ships without Stay Behind.
-            const cls = key === "stay" ? "warn" : "fail";
-            if (cls === "fail") failed++;
-            lines.push({ text: (cls === "fail" ? "FAIL " : "SKIP ") + label + " [" + key + "]: no solution", cls });
-            return;
-          }
-          const r = judge(play(level, undefined, sols[key]), key);
-          r.ok ? passed++ : failed++;
-          lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + " [" + key + "]: " + r.why, cls: r.ok ? "pass" : "fail" });
-        });
-        runChecks(level);
-        return;
-      }
-      if (!level.solution) {
-        failed++;
-        lines.push({ text: "FAIL " + label + ": no solution", cls: "fail" });
-        return;
-      }
-      const r = judge(play(level, undefined, level.solution));
-      r.ok ? passed++ : failed++;
-      lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + ": " + r.why, cls: r.ok ? "pass" : "fail" });
-      runChecks(level);
-    });
-    lines.push({ text: "" });
-    lines.push({ text: passed + " passed, " + failed + " failed", cls: failed ? "fail" : "pass" });
-    writeOut(lines);
-  }
-
-  // Levels 5-8 in order, passing carry along. Fails if the glass breaks before Level 8's smash.
-  function doCheckChain() {
-    const lines = [{ text: "Check Act 2 chain (5 → 6 → 7 → 8)" }];
-    let carry = undefined;
-    let ok = true;
-    for (const n of [5, 6, 7, 8]) {
-      const level = realLevels.find(l => l.number === n);
-      if (!level) { ok = false; lines.push({ text: "FAIL Level " + n + ": not built yet", cls: "fail" }); break; }
-      if (!level.solution) { ok = false; lines.push({ text: "FAIL Level " + n + ": no solution", cls: "fail" }); break; }
-      const run = play(level, carry, level.solution);
-      const r = judge(run);
-      if (!r.ok) { ok = false; lines.push({ text: "FAIL Level " + n + ": " + r.why, cls: "fail" }); break; }
-      // A glassBreak is only allowed on Level 8's winning move (with the swap).
-      let early = null;
-      run.steps.forEach((st, i) => {
-        const types = st.events.map(e => e.type);
-        const isSmash = n === 8 && types.indexOf("swap") !== -1;
-        if (early === null && ((types.indexOf("glassBreak") !== -1 && !isSmash) || st.state.cracks >= 5)) early = i + 1;
-      });
-      if (early !== null) {
-        ok = false;
-        lines.push({ text: "FAIL Level " + n + ": the glass broke at input " + early + " (before Level 8's smash)", cls: "fail" });
-        break;
-      }
-      lines.push({ text: "PASS Level " + n + ": " + summary(run.state), cls: "pass" });
-      carry = run.state.carry;
-    }
-    lines.push({ text: "" });
-    lines.push({ text: ok ? "Chain passes" : "Chain fails", cls: ok ? "pass" : "fail" });
-    writeOut(lines);
-  }
-
-  // ---------- Wiring ----------
-
-  allLevels.forEach((level, i) => {
-    const opt = document.createElement("option");
-    opt.value = String(i);
-    opt.textContent = levelLabel(level);
-    $("levelPick").appendChild(opt);
-  });
-
-  $("levelPick").addEventListener("change", e => { loadLevel(Number(e.target.value)); e.target.blur(); });
-  $("loadBtn").addEventListener("click", () => loadLevel(Number($("levelPick").value)));
-  $("nextBtn").addEventListener("click", () => {
-    if (levelIndex + 1 >= allLevels.length) { logLines.push("No more levels."); render(); return; }
-    loadLevel(levelIndex + 1, state ? state.carry : undefined);
-  });
-  $("replayBtn").addEventListener("click", doReplay);
-  $("solutionBtn").addEventListener("click", () => {
-    const level = allLevels[levelIndex];
-    $("replayInput").value = level.solution || (level.solutions ? JSON.stringify(level.solutions) : "");
-  });
-  $("checkAllBtn").addEventListener("click", doCheckAll);
-  $("checkChainBtn").addEventListener("click", doCheckChain);
-
-  const KEYS = {
-    ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R",
-    KeyW: "U", KeyS: "D", KeyA: "L", KeyD: "R",
-    KeyZ: "UNDO", KeyR: "RESTART",
-    ShiftLeft: "RESIST", ShiftRight: "RESIST"
-  };
-
+  const keyMap = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", w: "U", s: "D", a: "L", d: "R", z: "UNDO", r: "RESTART" };
   document.addEventListener("keydown", e => {
-    const tag = (e.target.tagName || "").toLowerCase();
-    if (tag === "textarea" || tag === "input" || tag === "select") return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    // Page shortcut, not a rules input: Enter reloads the current level.
-    if (e.code === "Enter" || e.code === "NumpadEnter") {
-      e.preventDefault();
-      loadLevel(levelIndex, loadCarry);
-      return;
-    }
-    let input = KEYS[e.code];
-    if (e.code === "Space") input = state && state.act === 3 ? "FOLLOW" : "LOOK";
-    if (!input) return;
-    e.preventDefault();
-    if (e.repeat && input === "RESIST") return;
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    send(input);
+    if (e.target.tagName === "INPUT") return;
+    const k = keyMap[e.key] || keyMap[e.key.toLowerCase()];
+    if (k) { e.preventDefault(); send(k); }
   });
 
-  if (typeof Rules === "undefined") {
-    showError("startup", "Rules is missing (src/rules.js did not load)");
-  } else if (allLevels.length) {
-    loadLevel(0);
+  function play(L, keys) {
+    let s = Rules.load(L);
+    for (const k of keys.trim().split(/\s+/)) { s = Rules.step(s, k).state; if (s.status !== "playing") break; }
+    return s;
   }
-  </script>
+
+  document.getElementById("replay").addEventListener("click", () => {
+    state = play(level, document.getElementById("keys").value); lastEvents = []; draw();
+  });
+
+  document.getElementById("checkAll").addEventListener("click", () => {
+    const lines = [];
+    levels.forEach(L => {
+      const sols = L.final ? L.solutions : { win: L.solution };
+      Object.keys(sols || {}).forEach(goal => {
+        const s = play(L, sols[goal]);
+        const got = s.ending || (s.status === "won" ? "win" : s.status);
+        const ok = got === goal;
+        lines.push('<span class="' + (ok ? "pass" : "fail") + '">' + (ok ? "PASS" : "FAIL") + "</span>  Level " + L.number + " " + goal + " (" + sols[goal].split(" ").length + " moves) → " + got);
+      });
+    });
+    document.getElementById("results").innerHTML = lines.join("\n");
+  });
+
+  draw();
+</script>
 </body>
 </html>

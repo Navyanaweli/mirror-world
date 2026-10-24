@@ -1,25 +1,17 @@
-// Level 2 — Bathroom (Person B). Team change: full-opposite mirror.
-// Teaches: a plate on one side opens a door on the other.
-// The reflection now flips Up/Down too, so the mirror room is drawn upside-down.
-// Theo's door (A) is shut. Only the reflection can reach plate a, and only by
-// moving Down onto it (Theo presses Up and bumps the wall above him). Hold the
-// plate, then press Down together: Theo slips through the door before it closes,
-// and the reflection rises to its goal.
+// Level 2 — Bathroom (owner: B). Design v4. Solver-checked.
+// Teaches: a plate on one side opens a door on the other, only while held.
 LEVELS.push({
   number: 2, name: "Bathroom", act: 1,
   map: [
     "#######|#######",
-    "#######|#######",
-    "#T....#|###G###",
-    "###A###|#....R#",
-    "###G###|###a###",
+    "#..T..#|#...#O#",
+    "#.#...#|##D..A#",
+    "#a....#|#.....#",
+    "#H....#|#.....#",
     "#######|#######"
   ],
   events: [
-    { at: "start", do: "hint", words: "Somewhere, a weight could open a door." },
-    // Mara's first message, the moment the puzzle is cracked (reflection on the plate).
-    { at: { who: "reflection", x: 3, y: 4 }, do: "text", words: "I'M SORRY", side: "right", mirrored: true }
+    {at: "start", do: "text", words: "I'M SORRY", side: "right", mirrored: true}
   ],
-  solution: "R R U D D",
-  instructions: "The plate in the mirror opens your door. Walk Right until you are above the door. Press Up: you bump the wall while the reflection steps Down onto the plate, and the door opens. Then go Down twice. A door can't close on someone standing in it."
+  solution: "D D L L U U D R R R R D L D"   // 14 moves, shortest
 });

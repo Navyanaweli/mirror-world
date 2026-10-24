@@ -1,546 +1,232 @@
-// Rules (Person A). The game's brain: no graphics, just state in, state out.
-// Follows the Shared contracts (Claude Playbook) with Design Update v3 on top.
-// Step A2: mirror rule, walls, goals, UNDO, RESTART, carry.
-// Step A3: plates, doors and spikes (v3: no boxes).
-// Step A4: the glass (cracks, glassBreak), tile triggers, disobeys, Look, Mercy,
-//          slip, lag and the Level 5 undo lock.
-// Step A7: Act 3 (Sam's route, Follow/Resist/Break, Will, Sam's Look, footprints,
-//          Theo's message) and the Level 8 smash and swap.
-// Step A10: Level 12 (final: true): the five ending checks, ONE MORE + strain at
-//          4 cracks, "Sam is about to leave...", and the Mercy TOGETHER text.
-// Team changes after v3: full-opposite mirror; state.glitches; shimmer carries dir.
+// Mirror World — game rules (design v4). Owner: Person A.
+// No graphics here. B's game.js talks to this only through Rules.load and Rules.step.
+//
+// THE RULES, in one place:
+// 1. Your keys move Theo. The other body (the reflection, later Sam) moves the
+//    OPPOSITE way: left <-> right AND up <-> down.
+// 2. Walls (#) and closed doors (A, B) block each body separately. A blocked body
+//    stays put while the other one still moves. This is the main puzzle tool.
+// 3. Door A is open while any body stands on plate a, or while a body stands in
+//    the doorway (a door never closes on someone).
+// 4. Spikes (^): if either body lands on spikes, the level fails.
+// 5. Cracks (%): if either body lands on an unused crack, the two bodies swap
+//    places through the glass. That crack is then used up (plain floor).
+// 6. Win: Theo on H and the other body on D at the same time.
+// 7. Final level: a swap ends the game ("take"); both on F at once ("break");
+//    Theo on H and Sam on D ("stay").
+
 const Rules = (function () {
-
   const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
-  // Team change after v3: the reflection does the full opposite (left/right and up/down swap).
-  const MIRROR = { U: "D", D: "U", L: "R", R: "L" };
-  const DEFAULT_CARRY = { cracks: 0, mercy: 0, undoLockUsed: false };
-  // Door letter -> the plate that holds it open.
-  const PLATES = { A: "a", B: "b" };
+  const OPP = { U: "D", D: "U", L: "R", R: "L" };
 
-  function copy(value) {
-    return JSON.parse(JSON.stringify(value));
-  }
-
-  // Split each map row at "|" into the real room (left) and the mirror room (right).
-  function splitMap(map) {
-    return {
-      left: map.map(row => row.split("|")[0] || ""),
-      right: map.map(row => row.split("|")[1] || "")
-    };
-  }
-
-  function find(rows, ch) {
-    for (let y = 0; y < rows.length; y++) {
-      const x = rows[y].indexOf(ch);
-      if (x !== -1) return { x, y };
-    }
-    return null;
-  }
-
-  // The start letters become plain floor once the bodies are placed.
-  function clearStart(rows, ch) {
-    return rows.map(row => row.split(ch).join("."));
-  }
-
-  // Anything outside the map counts as wall.
-  function tileAt(rows, x, y) {
-    if (y < 0 || y >= rows.length) return "#";
-    const row = rows[y];
-    if (x < 0 || x >= row.length) return "#";
-    return row[x];
-  }
-
-  function isSolid(state, tile) {
-    if (tile === "#") return true;
-    // Doors block like walls while closed.
-    if (PLATES[tile]) return state.openDoors.indexOf(tile) === -1;
-    return false;
-  }
-
-  function onTile(rows, body, ch) {
-    return tileAt(rows, body.x, body.y) === ch;
-  }
-
-  function onEither(state, ch) {
-    return onTile(state._left, state.person, ch) || onTile(state._right, state.reflection, ch);
-  }
-
-  // Door A is open while anyone stands on plate a, on either side.
-  // A door never closes on someone standing in it. Sends a door event for each change.
-  function updateDoors(state, events) {
-    const open = [];
-    Object.keys(PLATES).forEach(letter => {
-      const wasOpen = state.openDoors.indexOf(letter) !== -1;
-      const held = onEither(state, PLATES[letter]);
-      const someoneInDoorway = onEither(state, letter);
-      const isOpen = held || (wasOpen && someoneInDoorway);
-      if (isOpen) open.push(letter);
-      if (events && isOpen !== wasOpen) events.push({ type: "door", letter: letter, open: isOpen });
+  function parse(level) {
+    const left = [], right = [];
+    level.map.forEach(function (row) {
+      const parts = row.split("|");
+      left.push(parts[0]);
+      right.push(parts[1]);
     });
-    state.openDoors = open;
-  }
-
-  // ---------- The glass ----------
-
-  function addCrack(state, events) {
-    state.cracks += 1;
-    events.push({ type: "crack", cracks: state.cracks });
-    if (state.cracks >= 5) breakGlass(state, events);
-  }
-
-  // The glass breaks and is whole again.
-  function breakGlass(state, events) {
-    state.cracks = 0;
-    events.push({ type: "glassBreak" });
-  }
-
-  // ---------- Script events ----------
-
-  function fire(state, ev, events) {
-    switch (ev.do) {
-      case "blink":
-      case "wave":
-      case "tilt":
-      case "shimmer":
-      case "strain":
-        events.push({ type: "moment", kind: ev.do, who: "reflection" });
-        break;
-      case "text":
-        events.push({
-          type: "text",
-          words: ev.words || "",
-          side: ev.side === "left" ? "left" : "right",
-          mirrored: ev.mirrored !== false
-        });
-        break;
-      case "hint":
-        events.push({ type: "hint", words: ev.words || "" });
-        break;
-      case "disobey":
-        // v3: the warning comes now, the disobey on the next move. dir lets the
-        // screen show which way the glitch will pull.
-        if (ev.warn) events.push({ type: "moment", kind: "shimmer", who: "reflection", dir: ev.dir });
-        state._pending = { dir: ev.dir, kind: ev.kind === "required" ? "required" : "stoppable" };
-        break;
-      case "slip":
-        state.slipTurns = ev.turns || 1;
-        events.push({ type: "moment", kind: "slip", who: "reflection" });
-        break;
-      case "undoLock":
-        // Once per playthrough: from here, UNDO can't go back past this point.
-        if (!state.carry.undoLockUsed) state._undoFloor = state._history.length;
-        break;
-    }
-  }
-
-  // Fire every event whose trigger matches and that hasn't fired yet this attempt.
-  function fireMatching(state, events, matches) {
-    state._events.forEach((ev, i) => {
-      if (state._fired.indexOf(i) !== -1 || !matches(ev)) return;
-      state._fired.push(i);
-      fire(state, ev, events);
-    });
-  }
-
-  // v3 tile trigger: at: { who, x, y }, in that character's half.
-  function standsOn(state, at) {
-    if (!at || typeof at !== "object") return false;
-    const body = at.who === "reflection" ? state.reflection : state.person;
-    return body.x === at.x && body.y === at.y;
-  }
-
-  // Glitch tiles B draws: every tile disobey still waiting to fire this attempt.
-  function updateGlitches(state) {
-    state.glitches = [];
-    state._events.forEach((ev, i) => {
-      if (ev.do !== "disobey" || !ev.at || typeof ev.at !== "object") return;
-      if (state._fired.indexOf(i) !== -1) return;
-      state.glitches.push({
-        who: ev.at.who === "person" ? "person" : "reflection",
-        x: ev.at.x, y: ev.at.y, dir: ev.dir,
-        kind: ev.kind === "required" ? "required" : "stoppable"
+    const tiles = { left: [], right: [] };
+    let theo = null, other = null;
+    const plates = {};
+    [["left", left], ["right", right]].forEach(function (pair) {
+      const side = pair[0], grid = pair[1];
+      grid.forEach(function (line, y) {
+        const row = [];
+        for (let x = 0; x < line.length; x++) {
+          let c = line[x];
+          if (c === "T") { theo = { side: side, x: x, y: y }; c = "."; }
+          else if (c === "O") { other = { side: side, x: x, y: y }; c = "."; }
+          if (c === "a" || c === "b") {
+            const L = c.toUpperCase();
+            (plates[L] = plates[L] || []).push({ side: side, x: x, y: y });
+          }
+          row.push(c);
+        }
+        tiles[side].push(row);
       });
     });
+    if (!theo || !other) throw new Error("Level " + level.number + " needs a T and an O");
+    return { tiles: tiles, theo: theo, other: other, plates: plates };
   }
 
-  // ---------- Act 3 helpers ----------
+  function key(p) { return p.side + ":" + p.x + ":" + p.y; }
+  function same(a, b) { return a.side === b.side && a.x === b.x && a.y === b.y; }
 
-  // Where a body ends up after one step, or null if something blocks it.
-  function stepTo(state, rows, body, dir) {
-    if (!dir || !DIRS[dir]) return null;
-    const to = { x: body.x + DIRS[dir][0], y: body.y + DIRS[dir][1] };
-    return isSolid(state, tileAt(rows, to.x, to.y)) ? null : to;
+  function tileAt(st, p) {
+    const row = st._grid.tiles[p.side][p.y];
+    const c = row ? row[p.x] : undefined;
+    if (c === undefined) return "#";
+    if (c === "%" && st.usedCracks.indexOf(key(p)) !== -1) return ".";
+    return c;
   }
 
-  // samLooking (the eye icon) and Sam's next 3 footprints, for B to draw.
-  function updateSamView(state) {
-    if (state.status !== "playing") {
-      state.samLooking = false;
-      state.footprints = [];
-      return;
-    }
-    state.samLooking = state._samLooks.indexOf(state.turn + 1) !== -1;
-    const steps = [];
-    let pos = { x: state.person.x, y: state.person.y };
-    for (let t = state.turn + 1; t <= state.turn + 3 && t <= state._route.length; t++) {
-      pos = stepTo(state, state._left, pos, state._route[t - 1]) || pos;
-      steps.push({ x: pos.x, y: pos.y, glow: t === state._frameTurn });
-    }
-    state.footprints = steps;
-  }
-
-  // ---------- State helpers ----------
-
-  // A deep copy of the state for the history: everything except the history itself.
-  function snapshot(state) {
-    const s = {};
-    Object.keys(state).forEach(k => {
-      if (k !== "_history" && k !== "_start") s[k] = state[k];
+  function doorsOpen(st, theo, other) {
+    const open = [];
+    Object.keys(st._grid.plates).forEach(function (L) {
+      const on = st._grid.plates[L].some(function (p) { return same(p, theo) || same(p, other); });
+      if (on) open.push(L);
     });
-    return copy(s);
+    [theo, other].forEach(function (b) {
+      const c = tileAt(st, b);
+      if ((c === "A" || c === "B") && open.indexOf(c) === -1) open.push(c);
+    });
+    return open.sort();
   }
 
-  // Build a fresh state from a snapshot. Snapshots are shared, never changed.
-  function restore(snap, start, history) {
-    const s = copy(snap);
-    s._start = start;
-    s._history = history;
-    s.startEvents = [];
-    return s;
+  function snapshot(st) {
+    return {
+      theo: Object.assign({}, st.theo),
+      other: Object.assign({}, st.other),
+      usedCracks: st.usedCracks.slice(),
+      turn: st.turn,
+      status: st.status
+    };
   }
 
-  // A new state that matches the old one (step never changes the state it's given).
-  function unchanged(old) {
-    return { state: restore(snapshot(old), old._start, old._history), events: [] };
+  function levelEvents(level, when) {
+    return (level.events || [])
+      .filter(function (e) { return e.at === when; })
+      .map(function (e) {
+        if (e.do === "text") return { type: "text", words: e.words, side: e.side || "right", mirrored: !!e.mirrored };
+        return { type: "moment", kind: e.do };
+      });
   }
 
-  // ---------- Rules.load ----------
-
-  function load(level, carry) {
-    const halves = splitMap(level.map || []);
-    const act = level.act || 1;
-    const inCarry = Object.assign({}, DEFAULT_CARRY, carry ? copy(carry) : {});
-    // Cracks carry across Act 2 (one night). Acts 1 and 3 start at 0.
-    const cracks = act === 2 ? (inCarry.cracks || 0) : 0;
-
-    const state = {
-      act: act,
-      person: find(halves.left, "T") || { x: 1, y: 1 },
-      reflection: find(halves.right, "R") || { x: 1, y: 1 },
-      boxes: [],                  // v3: boxes are cut, always empty
+  function load(level) {
+    const grid = parse(level);
+    const st = {
+      level: level.number,
+      name: level.name,
+      act: level.act,
+      final: !!level.final,
+      map: level.map,
+      theo: grid.theo,
+      other: grid.other,
+      usedCracks: [],
       openDoors: [],
-      map: copy(level.map || []),
       turn: 0,
-      cracks: cracks,
-      will: act === 3 ? (level.will || 0) : null,
-      look: level.look === true,
-      samLooking: false,
-      footprints: [],
-      slipTurns: 0,
-      status: "playing",
-      ending: null,
-      glitches: [],               // team change: [{who, x, y, dir, kind}] tiles that will glitch
-      carry: {
-        cracks: cracks,
-        mercy: inCarry.mercy || 0,
-        undoLockUsed: !!inCarry.undoLockUsed
-      },
-      startEvents: [],
-      _left: clearStart(halves.left, "T"),
-      _right: clearStart(halves.right, "R"),
-      _events: copy(level.events || []),
-      _fired: [],                 // indexes of events fired this attempt
-      _pending: null,             // a disobey due on the next move: { dir, kind }
-      _lag: level.lag || 0,
-      _moves: [],                 // Theo's move each turn (null = stood still), for lag
-      _undoFloor: null,           // UNDO can't go below this history length
-      _lookedAtRequired: false,   // Look cancelled a required disobey: hint after RESTART
-      _swap: level.swap === true, // Level 8: winning smashes the glass
-      _final: level.final === true,
-      _route: String(level.samRoute || "").trim().split(/\s+/).filter(Boolean),
-      _samLooks: (level.samLooks || []).slice(),
-      _frameTurn: level.frameTurn || null,
-      _message: level.message || null,
-      _willStart: act === 3 ? (level.will || 0) : 0
+      status: "playing",   // "playing" | "won" | "failed" | "ended"
+      ending: null,        // null | "take" | "break" | "stay"
+      startEvents: levelEvents(level, "start"),
+      _level: level,
+      _grid: grid,
+      _history: []
     };
-    state._history = [];
-    updateDoors(state, null);   // in case someone starts on a plate
-    fireMatching(state, state.startEvents, ev => ev.at === "start");
-    updateGlitches(state);
-    if (act === 3) updateSamView(state);
-    state._start = snapshot(state);
-    return state;
+    st.openDoors = doorsOpen(st, st.theo, st.other);
+    return st;
   }
 
-  // ---------- Rules.step ----------
+  function copyState(st) {
+    const n = Object.assign({}, st);
+    n.theo = Object.assign({}, st.theo);
+    n.other = Object.assign({}, st.other);
+    n.usedCracks = st.usedCracks.slice();
+    n.openDoors = st.openDoors.slice();
+    n._history = st._history.slice();
+    n.startEvents = [];
+    return n;
+  }
 
-  // One turn in Acts 1-2. input is "U"/"D"/"L"/"R", or "LOOK" (Theo stares, the reflection freezes).
-  // Turn order: work out both moves, move both at once, plates and doors,
-  // cracks, spikes, goals, then this turn's script events.
-  function takeTurn(old, input) {
-    const state = restore(snapshot(old), old._start, old._history.concat([snapshot(old)]));
+  function restore(n, snap) {
+    n.theo = Object.assign({}, snap.theo);
+    n.other = Object.assign({}, snap.other);
+    n.usedCracks = snap.usedCracks.slice();
+    n.turn = snap.turn;
+    n.status = snap.status;
+    n.ending = null;
+    n.openDoors = doorsOpen(n, n.theo, n.other);
+  }
+
+  function step(st, input) {
+    // After a win or an ending, nothing works.
+    if (st.status === "won" || st.status === "ended") return { state: st, events: [] };
+
+    const n = copyState(st);
     const events = [];
-    const look = input === "LOOK";
-    state.turn += 1;
-
-    // Work out both moves.
-    let personDir = null;
-    let reflDir = null;
-    const slipping = state.slipTurns > 0;
-    if (slipping) {
-      // Slip: the keys move the reflection, and Theo mirrors it.
-      state.slipTurns -= 1;
-      if (!look) {
-        reflDir = input;
-        personDir = MIRROR[input];
-      }
-    } else if (!look) {
-      personDir = input;
-      reflDir = MIRROR[input];
-    }
-
-    // Lag N: the reflection mirrors Theo's move from N turns ago, and stays still
-    // for the first N turns. Looks and blocked moves still count as turns.
-    state._moves.push(personDir);
-    if (state._lag > 0 && !look && !slipping) {
-      const past = state._moves[state._moves.length - 1 - state._lag];
-      reflDir = past ? MIRROR[past] : null;
-    }
-
-    // A disobey due now: the reflection moves its own way, unless Theo looks.
-    let disobeyed = false;
-    if (state._pending) {
-      const due = state._pending;
-      state._pending = null;
-      if (look) {
-        if (due.kind === "required") state._lookedAtRequired = true;
-      } else {
-        reflDir = due.dir;
-        disobeyed = true;
-        if (due.kind === "stoppable") state.carry.mercy += 1;
-      }
-    }
-
-    // Move both at once.
-    const moves = [
-      { who: "person", rows: state._left, dir: personDir },
-      { who: "reflection", rows: state._right, dir: reflDir }
-    ].filter(m => m.dir && DIRS[m.dir]);
-    moves.forEach(m => {
-      const body = state[m.who];
-      const d = DIRS[m.dir];
-      const to = { x: body.x + d[0], y: body.y + d[1] };
-      m.to = isSolid(state, tileAt(m.rows, to.x, to.y)) ? null : to;
-    });
-    moves.forEach(m => {
-      if (m.to) {
-        state[m.who] = m.to;
-        events.push({ type: "move", who: m.who, to: { x: m.to.x, y: m.to.y } });
-      } else {
-        events.push({ type: "blocked", who: m.who });
-      }
-    });
-
-    updateDoors(state, events);
-
-    if (disobeyed) addCrack(state, events);
-
-    if (onEither(state, "^")) {
-      state.status = "failed";
-      events.push({ type: "fail", reason: "spikes" });
-    } else if (onTile(state._left, state.person, "G") && onTile(state._right, state.reflection, "G")) {
-      // Win: both stand on their goal at the same moment.
-      state.status = "won";
-      if (state._swap) {
-        // Level 8: Theo smashes the mirror and they swap places.
-        breakGlass(state, events);
-        events.push({ type: "swap" });
-      } else {
-        events.push({ type: "win" });
-      }
-    }
-
-    if (state.status !== "failed") {
-      fireMatching(state, events, ev => standsOn(state, ev.at));
-    }
-
-    updateGlitches(state);
-    state.carry.cracks = state.cracks;
-    return { state, events };
-  }
-
-  // One turn in Act 3. Sam takes the next samRoute step whatever the input.
-  // Theo: FOLLOW mirrors Sam's step, RESIST stays still, an arrow is Break (his own way).
-  // Resist and Break cost 1 Will and add 1 crack; with 0 Will they act like Follow.
-  function takeAct3Turn(old, input) {
-    const state = restore(snapshot(old), old._start, old._history.concat([snapshot(old)]));
-    const events = [];
-    state.turn += 1;
-
-    const samDir = state._route[state.turn - 1] || null;
-    let choice = input === "RESIST" ? "resist" : (DIRS[input] ? "break" : "follow");
-    if (choice !== "follow" && state.will <= 0) choice = "follow";
-    const theoDir = choice === "follow" ? (samDir ? MIRROR[samDir] : null) : (choice === "break" ? input : null);
-
-    // Move both at once.
-    const moves = [
-      { who: "person", rows: state._left, dir: samDir },
-      { who: "reflection", rows: state._right, dir: theoDir }
-    ].filter(m => m.dir && DIRS[m.dir]);
-    moves.forEach(m => { m.to = stepTo(state, m.rows, state[m.who], m.dir); });
-    moves.forEach(m => {
-      if (m.to) {
-        state[m.who] = m.to;
-        events.push({ type: "move", who: m.who, to: { x: m.to.x, y: m.to.y } });
-      } else {
-        events.push({ type: "blocked", who: m.who });
-      }
-    });
-
-    updateDoors(state, events);
-
-    const disobeyed = choice !== "follow";
-    if (disobeyed) {
-      state.will -= 1;
-      const shimmer = { type: "moment", kind: "shimmer", who: "reflection" };
-      if (choice === "break") shimmer.dir = input;
-      events.push(shimmer);
-      if (state._final) {
-        // Level 12: the 5th crack is an ending, checked below, not an automatic break.
-        state.cracks += 1;
-        events.push({ type: "crack", cracks: state.cracks });
-        if (state.cracks === 4) {
-          events.push({ type: "text", words: "ONE MORE", side: "right", mirrored: true });
-          events.push({ type: "moment", kind: "strain", who: "reflection" });
-        }
-      } else {
-        addCrack(state, events);
-      }
-    }
-
-    if (state._final) {
-      finalChecks(state, events, disobeyed);
-    } else if (onEither(state, "^")) {
-      state.status = "failed";
-      events.push({ type: "fail", reason: "spikes" });
-    } else if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
-      // Sam saw Theo disobey.
-      state.status = "failed";
-      events.push({ type: "fail", reason: "seen" });
-    } else if (state.turn >= state._route.length) {
-      // Sam's route is over.
-      if (onTile(state._right, state.reflection, "G")) {
-        state.status = "won";
-        if (state._message) {
-          // Theo writes it, then how Sam sees it.
-          events.push({ type: "text", words: state._message, side: "right", mirrored: false });
-          events.push({ type: "text", words: state._message, side: "left", mirrored: true });
-        }
-        events.push({ type: "win" });
-      } else {
-        state.status = "failed";
-        events.push({ type: "fail", reason: "route" });
-      }
-    }
-
-    if (state.status !== "failed") {
-      fireMatching(state, events, ev => ev.turn === state.turn || standsOn(state, ev.at));
-    }
-
-    if (state._final && state.status === "playing") {
-      // Mercy remembered: TOGETHER just before the glowing footprint.
-      if (state.carry.mercy >= 1 && state._frameTurn && state.turn === state._frameTurn - 1) {
-        events.push({ type: "text", words: "TOGETHER", side: "right", mirrored: true });
-      }
-      if (state.turn === state._route.length - 1) {
-        events.push({ type: "hint", words: "Sam is about to leave..." });
-      }
-    }
-
-    updateSamView(state);
-    state.carry.cracks = state.cracks;
-    return { state, events };
-  }
-
-  // Level 12, every turn after moves and cracks. First match wins.
-  function finalChecks(state, events, disobeyed) {
-    const spent = state._willStart - state.will;
-    const routeOver = state.turn >= state._route.length;
-    const end = which => {
-      state.status = "won";
-      state.ending = which;
-      events.push({ type: "ending", which: which, mercy: state.carry.mercy });
-    };
-    if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
-      // 1. Sam sees Theo disobey.
-      state.status = "failed";
-      events.push({ type: "fail", reason: "seen" });
-    } else if (state.cracks >= 5) {
-      // 2. The 5th Will is spent: the glass breaks. Take Their Place.
-      breakGlass(state, events);
-      end("take");
-    } else if (state.turn === state._frameTurn &&
-               onTile(state._left, state.person, "F") && onTile(state._right, state.reflection, "F")) {
-      // 3. Both touch the frame while the glass is unbroken. Break It Together.
-      end("break");
-    } else if (routeOver && spent === 0) {
-      // 4. Theo never pushed. Stay Behind.
-      end("stay");
-    } else if (routeOver) {
-      // 5. Some Will spent, no frame: no ending tonight.
-      events.push({ type: "text", words: "NOT TONIGHT", side: "right", mirrored: true });
-      state.status = "failed";
-      events.push({ type: "fail", reason: "not-tonight" });
-    }
-  }
-
-  function step(oldState, input) {
-    // v3: after a win, ignore everything. After a fail, only RESTART works.
-    if (oldState.status === "won") return unchanged(oldState);
-    if (oldState.status === "failed" && input !== "RESTART") return unchanged(oldState);
 
     if (input === "RESTART") {
-      const state = restore(oldState._start, oldState._start, []);
-      // The undo lock happens once per playthrough, even across restarts.
-      state.carry.undoLockUsed = state.carry.undoLockUsed || oldState.carry.undoLockUsed;
-      // The level opens again, so its start events play again.
-      const events = copy(oldState._start.startEvents || []);
-      if (oldState._lookedAtRequired) events.push({ type: "hint", words: "Maybe let it." });
-      return { state, events };
+      const fresh = load(st._level);
+      fresh.startEvents = [];
+      return { state: fresh, events: [{ type: "restart" }] };
     }
-
     if (input === "UNDO") {
-      const history = oldState._history;
-      if (oldState._undoFloor !== null && history.length <= oldState._undoFloor) {
-        // Refused. The first time ever, the glass remembers.
-        const result = unchanged(oldState);
-        if (!oldState.carry.undoLockUsed) {
-          result.state.carry.undoLockUsed = true;
-          result.events.push({ type: "text", words: "IT REMEMBERS", side: "right", mirrored: true });
-        }
-        return result;
+      if (n._history.length === 0) return { state: st, events: [] };
+      restore(n, n._history.pop());
+      return { state: n, events: [{ type: "undo" }] };
+    }
+    if (st.status === "failed") return { state: st, events: [] };   // only UNDO / RESTART after a fail
+    if (!DIRS[input]) return { state: st, events: [] };
+
+    n._history.push(snapshot(st));
+    n.turn = st.turn + 1;
+
+    // 1. Doors that are open right now (before anyone moves).
+    const open = doorsOpen(st, st.theo, st.other);
+
+    // 2. Both bodies try to move: Theo with the key, the other the opposite way.
+    function tryMove(p, d) {
+      const q = { side: p.side, x: p.x + DIRS[d][0], y: p.y + DIRS[d][1] };
+      const c = tileAt(st, q);
+      if (c === "#") return null;
+      if ((c === "A" || c === "B") && open.indexOf(c) === -1) return null;
+      return q;
+    }
+    const tq = tryMove(st.theo, input);
+    const oq = tryMove(st.other, OPP[input]);
+    if (tq) { n.theo = tq; events.push({ type: "move", who: "theo", to: Object.assign({}, tq) }); }
+    else events.push({ type: "blocked", who: "theo" });
+    if (oq) { n.other = oq; events.push({ type: "move", who: "other", to: Object.assign({}, oq) }); }
+    else events.push({ type: "blocked", who: "other" });
+
+    // 3. Spikes.
+    if (tileAt(n, n.theo) === "^" || tileAt(n, n.other) === "^") {
+      n.status = "failed";
+      n.openDoors = doorsOpen(n, n.theo, n.other);
+      events.push({ type: "fail", reason: "spikes" });
+      return { state: n, events: events };
+    }
+
+    // 4. Cracks: swap through the glass.
+    let swapped = false;
+    const onCrack = [n.theo, n.other].filter(function (b) { return tileAt(n, b) === "%"; });
+    if (onCrack.length) {
+      onCrack.forEach(function (b) { n.usedCracks.push(key(b)); });
+      const at = Object.assign({}, onCrack[0]);
+      const t = n.theo; n.theo = n.other; n.other = t;
+      swapped = true;
+      events.push({ type: "swap", at: at, theo: Object.assign({}, n.theo), other: Object.assign({}, n.other) });
+    }
+
+    // 5. Doors after the move.
+    const nowOpen = doorsOpen(n, n.theo, n.other);
+    ["A", "B"].forEach(function (L) {
+      const was = st.openDoors.indexOf(L) !== -1, is = nowOpen.indexOf(L) !== -1;
+      if (was !== is) events.push({ type: "door", letter: L, open: is });
+    });
+    n.openDoors = nowOpen;
+
+    // 6. Goals and endings.
+    const tt = tileAt(n, n.theo), ot = tileAt(n, n.other);
+    if (n.final) {
+      let which = null;
+      if (swapped) which = "take";
+      else if (tt === "F" && ot === "F") which = "break";
+      else if (tt === "H" && ot === "D") which = "stay";
+      if (which) {
+        n.status = "ended";
+        n.ending = which;
+        events.push({ type: "ending", which: which });
       }
-      if (history.length === 0) return unchanged(oldState);
-      const state = restore(history[history.length - 1], oldState._start, history.slice(0, -1));
-      state.carry.undoLockUsed = state.carry.undoLockUsed || oldState.carry.undoLockUsed;
-      return { state, events: [] };
+    } else if (tt === "H" && ot === "D") {
+      n.status = "won";
+      levelEvents(st._level, "win").forEach(function (e) { events.push(e); });
+      events.push({ type: "win" });
     }
-
-    if (oldState.act === 3) {
-      if (input === "FOLLOW" || input === "RESIST" || DIRS[input]) return takeAct3Turn(oldState, input);
-      return unchanged(oldState);   // LOOK isn't used in Act 3
-    }
-
-    if (input === "LOOK") {
-      if (!oldState.look) return unchanged(oldState);
-      return takeTurn(oldState, "LOOK");
-    }
-
-    if (DIRS[input]) return takeTurn(oldState, input);
-
-    return unchanged(oldState);
+    return { state: n, events: events };
   }
 
-  return { load, step };
+  return { load: load, step: step };
 })();
+
+if (typeof module !== "undefined") module.exports = Rules;

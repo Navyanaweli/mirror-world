@@ -1,12 +1,17 @@
-// Level 1 — Hallway (Person B). Design v3 format.
+// Level 1 — Hallway (owner: B). Design v4. Solver-checked.
+// Teaches: the reflection moves the opposite way; use a wall to stop one body.
 LEVELS.push({
   number: 1, name: "Hallway", act: 1,
   map: [
     "#######|#######",
-    "#T...G#|#G..R.#",
+    "#..T.H#|#.#...#",
+    "##....#|#.D...#",
+    "#.....#|#.O...#",
+    "##....#|##....#",
     "#######|#######"
   ],
-  events: [ { at: "start", do: "blink" } ],
-  solution: "R R R R",
-  instructions: "Get both of you onto the glowing tiles at the same time. Right moves you right and your reflection left: the mirror does the opposite. Walls stop one of you while the other keeps going; use that to line you up."
+  events: [
+    {at: "start", do: "blink"}
+  ],
+  solution: "L L D R D R R U R"   // 9 moves, shortest
 });

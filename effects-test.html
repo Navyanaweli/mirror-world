@@ -1,0 +1,329 @@
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mirror World – effects test</title>
+<style>
+  :root {
+    --bg: #11141C; --panel: #181D28; --floor: #232A3A; --wall: #4A5570;
+    --light: #EAE4D6; --muted: #8E97AB; --silver: #9FD6E0; --warm: #E9B872;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--light);
+         font-family: Georgia, "Times New Roman", serif; line-height: 1.5; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 22px; font-weight: normal; margin: 0; }
+  .note { color: var(--muted); font-size: 14px; margin: 2px 0 12px; }
+  #game { width: 100%; aspect-ratio: 16 / 9; background: var(--bg);
+          border: 1px solid var(--floor); }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+              gap: 12px; margin-top: 12px; }
+  .group { background: var(--panel); border: 1px solid var(--floor); border-radius: 6px; padding: 10px 12px; }
+  .group h2 { font-size: 15px; font-weight: normal; color: var(--silver); margin: 0 0 8px; }
+  button, select { font: inherit; font-size: 14px; color: var(--light); background: var(--floor);
+                   border: 1px solid var(--wall); border-radius: 4px; padding: 4px 10px; margin: 0 4px 6px 0; cursor: pointer; }
+  button:hover { border-color: var(--silver); }
+  button:focus-visible, select:focus-visible { outline: 2px solid var(--warm); outline-offset: 2px; }
+  #crackCount { color: var(--warm); }
+  #log { margin-top: 12px; background: var(--panel); border: 1px solid var(--floor); border-radius: 6px;
+         padding: 8px 12px; height: 160px; overflow-y: auto; font-size: 13px; }
+  #log div { color: var(--muted); }
+  #log .ok { color: var(--light); }
+  #log .err { color: #F08A8A; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mirror World effects test</h1>
+  <p class="note">Only for testing effects.js. The real game is index.html. Press Setup first.</p>
+
+  <div id="game"></div>
+
+  <div class="controls">
+    <div class="group">
+      <h2>Start a level</h2>
+      <button id="btnSetup">Setup</button>
+      <select id="levelSelect" aria-label="Level"></select>
+      <button id="btnLevelStart">Level start</button>
+      <button id="btnAct3">Act 3 view</button>
+    </div>
+    <div class="group">
+      <h2>Glass (cracks: <span id="crackCount">0</span>)</h2>
+      <span id="crackButtons"></span><br>
+      <button id="btnCrack">Crack +1</button>
+      <button id="btnBreak">Glass break</button>
+    </div>
+    <div class="group">
+      <h2>Characters</h2>
+      <button id="btnMoveTheo">Move Theo</button>
+      <button id="btnMoveOther">Move the other one</button>
+      <button id="btnWin">Win</button>
+    </div>
+    <div class="group">
+      <h2>Moments</h2>
+      <span id="momentButtons"></span>
+    </div>
+  </div>
+
+  <div id="log" aria-live="polite"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+<script src="src/effects.js"></script>
+<script>
+// ---------- Settings from the shared contracts (v3) ----------
+const TILE = 64;        // 32x32 files drawn at 2x
+const STRIP = 32;       // mirror strip width on screen
+const COLS = 7, ROWS = 5;
+
+const IMAGES = ['theo', 'reflection', 'sam', 'floor', 'wall', 'goal', 'plate',
+                'door-closed', 'door-open', 'spikes', 'frame'];
+const SOUNDS = ['step.wav', 'crack.wav', 'break.wav', 'moment.wav', 'win.wav',
+                'theme-theo.mp3', 'theme-sam.mp3'];
+const CHARACTERS = ['theo', 'reflection', 'sam'];
+const FALLBACK = {
+  theo: '#E9B872', reflection: '#9FD6E0', sam: '#EAE4D6',
+  floor: '#232A3A', wall: '#4A5570', goal: '#5C5040', plate: '#6E7890',
+  'door-closed': '#5A4A3A', 'door-open': '#1A1F2B', spikes: '#7A8296', frame: '#A88E64'
+};
+
+// Test room only. Legend: # wall . floor T/R starts G goal ^ spikes F frame
+// a/b plates A/B closed doors O open door
+const ROOM_LEFT  = ["#######", "#..^.F#", "#T..G.#", "#a...A#", "#######"];
+const ROOM_RIGHT = ["#######", "#F.^..#", "#.G..R#", "#O...b#", "#######"];
+const TILE_IMAGE = { '#': 'wall', 'G': 'goal', 'a': 'plate', 'b': 'plate', 'A': 'door-closed',
+                     'B': 'door-closed', 'O': 'door-open', '^': 'spikes', 'F': 'frame' };
+
+const LEFT0 = (960 - (COLS * TILE * 2 + STRIP)) / 2;
+const TOP0 = (540 - ROWS * TILE) / 2;
+const MIRROR_X = LEFT0 + COLS * TILE + STRIP / 2;
+const RIGHT0 = LEFT0 + COLS * TILE + STRIP;
+
+const testState = { level: 1, act: 1, cracks: 0 };
+const failedFiles = new Set();
+
+// ---------- Log and safe calls ----------
+function log(msg, cls) {
+  const box = document.getElementById('log');
+  const line = document.createElement('div');
+  line.textContent = msg;
+  if (cls) line.className = cls;
+  box.prepend(line);
+  while (box.children.length > 40) box.lastChild.remove();
+}
+
+function call(name, ...args) {
+  if (typeof Effects === 'undefined' || typeof Effects[name] !== 'function') {
+    log('Effects.' + name + ' is missing, skipped.');
+    return;
+  }
+  try {
+    Effects[name](...args);
+    const shown = args.map(a => (a && a.scene) ? 'sprite' : (a && a.sys) ? 'scene' : JSON.stringify(a));
+    log('Called Effects.' + name + '(' + shown.join(', ') + ')', 'ok');
+  } catch (e) {
+    console.error(e);
+    log('Error in Effects.' + name + ': ' + e.message + ' (copy the red text from F12 → Console to Claude)', 'err');
+  }
+}
+
+function actFor(level) { return level <= 4 ? 1 : level <= 8 ? 2 : 3; }
+
+function tileCenter(side, col, row) {
+  const x0 = side === 'left' ? LEFT0 : RIGHT0;
+  return { x: x0 + col * TILE + TILE / 2, y: TOP0 + row * TILE + TILE / 2 };
+}
+
+function findChar(rows, ch) {
+  for (let y = 0; y < rows.length; y++) {
+    const x = rows[y].indexOf(ch);
+    if (x >= 0) return { x, y };
+  }
+  return { x: 1, y: 1 };
+}
+
+// A coloured square for any image that isn't drawn yet
+function makeSquare(scene, key) {
+  const color = Phaser.Display.Color.HexStringToColor(FALLBACK[key] || '#888888').color;
+  const g = scene.make.graphics({ x: 0, y: 0, add: false });
+  if (CHARACTERS.includes(key)) {
+    g.fillStyle(0x11141C); g.fillRect(5, 5, 22, 22);
+    g.fillStyle(color);    g.fillRect(6, 6, 20, 20);
+    g.fillStyle(0x11141C); g.fillRect(11, 12, 3, 3); g.fillRect(18, 12, 3, 3);
+  } else {
+    g.fillStyle(color); g.fillRect(0, 0, 32, 32);
+  }
+  g.generateTexture(key, 32, 32);
+  g.destroy();
+}
+
+// ---------- The test scene ----------
+class TestScene extends Phaser.Scene {
+  constructor() { super('test'); }
+  init(data) { this.run = (data && data.run) || null; }
+
+  preload() {
+    this.load.on('loaderror', file => {
+      if (!failedFiles.has(file.key)) {
+        failedFiles.add(file.key);
+        log('No file yet for "' + file.key + '", using a stand-in.');
+      }
+    });
+    IMAGES.forEach(k => {
+      if (!this.textures.exists(k) && !failedFiles.has(k)) this.load.image(k, 'assets/images/' + k + '.png');
+    });
+    SOUNDS.forEach(f => {
+      const k = f.split('.')[0];
+      if (!this.cache.audio.exists(k) && !failedFiles.has(k)) this.load.audio(k, 'assets/sounds/' + f);
+    });
+  }
+
+  create() {
+    IMAGES.forEach(k => { if (!this.textures.exists(k)) makeSquare(this, k); });
+    const act = testState.act;
+
+    this.drawHalf('left', ROOM_LEFT);
+    this.drawHalf('right', ROOM_RIGHT);
+
+    // Mirror strip
+    const top = TOP0, bottom = TOP0 + ROWS * TILE, mid = (top + bottom) / 2;
+    this.add.rectangle(MIRROR_X, mid, STRIP, bottom - top, 0x1B2433);
+    this.add.rectangle(MIRROR_X - STRIP / 2 + 1, mid, 2, bottom - top, 0x9FD6E0, 0.35);
+    this.add.rectangle(MIRROR_X + STRIP / 2 - 1, mid, 2, bottom - top, 0x9FD6E0, 0.35);
+
+    // Characters: Acts 1–2 Theo left, reflection right. Act 3 Sam left, Theo right.
+    const leftKey = act === 3 ? 'sam' : 'theo';
+    const rightKey = act === 3 ? 'theo' : 'reflection';
+    this.leftSprite = this.placeChar(leftKey, 'left', findChar(ROOM_LEFT, 'T'), 1);
+    this.rightSprite = this.placeChar(rightKey, 'right', findChar(ROOM_RIGHT, 'R'), -1);
+
+    // What effects.js reads (contract)
+    this.theo = act === 3 ? this.rightSprite : this.leftSprite;
+    this.other = act === 3 ? this.leftSprite : this.rightSprite;
+    this.mirror = { x: MIRROR_X, top, bottom };
+
+    this.add.text(480, 52, 'Level ' + testState.level + ', act ' + act,
+      { fontFamily: 'Georgia, serif', fontSize: '20px', color: '#EAE4D6' }).setOrigin(0.5);
+
+    window.testScene = this;
+
+    if (this.run === 'setup' || this.run === 'full') call('setup', this);
+    if (this.run === 'full') {
+      call('onLevelStart', testState.level, act);
+      call('setCracks', testState.cracks);
+    }
+  }
+
+  drawHalf(side, rows) {
+    rows.forEach((row, y) => {
+      [...row].forEach((ch, x) => {
+        const p = tileCenter(side, x, y);
+        if (ch !== '#') this.add.image(p.x, p.y, 'floor').setDisplaySize(TILE, TILE);
+        const key = TILE_IMAGE[ch];
+        if (key) this.add.image(p.x, p.y, key).setDisplaySize(TILE, TILE);
+      });
+    });
+  }
+
+  placeChar(key, side, pos, dir) {
+    const p = tileCenter(side, pos.x, pos.y);
+    const s = this.add.sprite(p.x, p.y, key).setDisplaySize(TILE, TILE).setDepth(10);
+    s.gx = pos.x; s.gy = pos.y; s.side = side; s.dirX = dir; s.moving = false;
+    return s;
+  }
+
+  isWall(side, x, y) {
+    const rows = side === 'left' ? ROOM_LEFT : ROOM_RIGHT;
+    return !rows[y] || rows[y][x] === undefined || rows[y][x] === '#';
+  }
+
+  // Walks a sprite left and right along its row, turning at walls
+  stepSprite(s) {
+    if (!s || s.moving) return;
+    let nx = s.gx + s.dirX;
+    if (this.isWall(s.side, nx, s.gy)) { s.dirX *= -1; nx = s.gx + s.dirX; }
+    if (this.isWall(s.side, nx, s.gy)) return;
+    s.gx = nx;
+    s.moving = true;
+    const p = tileCenter(s.side, s.gx, s.gy);
+    this.tweens.add({ targets: s, x: p.x, y: p.y, duration: 120, onComplete: () => { s.moving = false; } });
+    call('onMove', s);
+  }
+
+  // Preview of misty mirrored writing (B draws this in the real game)
+  showSampleText() {
+    const t = this.add.text(RIGHT0 + COLS * TILE / 2, TOP0 + TILE * 1.5, 'LET ME OUT',
+      { fontFamily: 'Georgia, serif', fontSize: '28px', color: '#9FD6E0' })
+      .setOrigin(0.5).setScale(-1, 1).setAlpha(0).setDepth(20);
+    this.tweens.add({ targets: t, alpha: 0.8, duration: 800, hold: 1500, yoyo: true,
+                      onComplete: () => t.destroy() });
+  }
+}
+
+new Phaser.Game({
+  type: Phaser.AUTO, width: 960, height: 540, parent: 'game',
+  backgroundColor: '#11141C', pixelArt: true,
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: TestScene
+});
+
+// ---------- Buttons ----------
+const $ = id => document.getElementById(id);
+const scene = () => window.testScene;
+function restart(run) { if (scene()) scene().scene.restart({ run }); }
+function showCracks() { $('crackCount').textContent = testState.cracks; }
+
+const select = $('levelSelect');
+for (let n = 1; n <= 12; n++) {
+  const o = document.createElement('option');
+  o.value = n; o.textContent = 'Level ' + n + ' (act ' + actFor(n) + ')';
+  select.appendChild(o);
+}
+select.addEventListener('change', () => {
+  testState.level = Number(select.value);
+  testState.act = actFor(testState.level);
+});
+
+$('btnSetup').onclick = () => restart('setup');
+$('btnLevelStart').onclick = () => restart('full');
+$('btnAct3').onclick = () => {
+  select.value = 9; testState.level = 9; testState.act = 3; restart('full');
+};
+
+for (let n = 0; n <= 5; n++) {
+  const b = document.createElement('button');
+  b.textContent = 'Cracks ' + n;
+  b.onclick = () => { testState.cracks = n; showCracks(); call('setCracks', n); };
+  $('crackButtons').appendChild(b);
+}
+$('btnCrack').onclick = () => {
+  const s = scene(); if (!s) return;
+  if (testState.cracks >= 5) { log('Already at 5 cracks. Try Glass break.'); return; }
+  testState.cracks++; showCracks();
+  call('onCrack', s.mirror.x, s.rightSprite.y);
+  call('setCracks', testState.cracks);
+};
+$('btnBreak').onclick = () => {
+  call('onGlassBreak');
+  testState.cracks = 0; showCracks();
+  call('setCracks', 0);
+};
+
+$('btnMoveTheo').onclick = () => { const s = scene(); if (s) s.stepSprite(s.theo); };
+$('btnMoveOther').onclick = () => { const s = scene(); if (s) s.stepSprite(s.other); };
+$('btnWin').onclick = () => call('onWin');
+
+['blink', 'wave', 'tilt', 'shimmer', 'slip', 'text', 'strain'].forEach(kind => {
+  const b = document.createElement('button');
+  b.textContent = kind[0].toUpperCase() + kind.slice(1);
+  b.onclick = () => {
+    const s = scene(); if (!s) return;
+    const body = (kind === 'text' || kind === 'strain') ? null : s.rightSprite;
+    if (kind === 'text') s.showSampleText();
+    call('onMoment', kind, body);
+  };
+  $('momentButtons').appendChild(b);
+});
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 // game.js (Person B) — level screen, title, story cards and game flow.
 // Talks to A only through Rules.load / Rules.step, and to C only through Effects.*
-// Design v3 + art change: images are 128x128 files drawn at 64 px with setDisplaySize,
+// Design v4 (simple rules) + art change: images are drawn at 64 px with setDisplaySize,
 // smooth (not pixel art). Each half is a rounded "screen" with a soft shadow,
 // and a glowing seam runs down the 32 px mirror strip.
 
@@ -23,11 +23,13 @@
   };
 
   // C's room tiles (optional): floor-<room>.png and wall-<room>.png, picked by level number.
-  const ROOMS = { 2: "bathroom", 5: "kitchen", 6: "cellar", 7: "library", 8: "attic", 9: "kitchen", 12: "attic" };
-  const ROOM_NAMES = ["bathroom", "kitchen", "cellar", "library", "attic"];
+  // v4 levels: 1 Hallway, 2 Bathroom, 3 Bedroom, 4 Study (library tiles), 5 Kitchen,
+  // 6 Attic, 7 Cellar, 8 Attic. Levels 1 and 3 keep the plain tiles.
+  const ROOMS = { 2: "bathroom", 4: "library", 5: "kitchen", 6: "attic", 7: "cellar", 8: "attic" };
+  const ROOM_NAMES = ["bathroom", "library", "kitchen", "cellar", "attic"];
 
   const IMAGES = ["theo", "reflection", "sam", "floor", "wall", "goal", "plate",
-    "door-closed", "door-open", "spikes", "frame"];
+    "door-closed", "door-open", "spikes", "frame", "crack"];
   const SOUNDS = [["step", "wav"], ["crack", "wav"], ["break", "wav"], ["moment", "wav"],
     ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"],
     // C's whispered voice lines (optional; effects.js stays quiet if one is missing)
@@ -53,10 +55,17 @@
       case "wall":
         g.fillStyle(0x3B5560, 1).fillRect(0, 0, S, S);
         g.fillStyle(0xFFFFFF, 0.05).fillRect(0, 0, S, 10); break;
-      case "goal":
-        g.fillStyle(0xA8E0D8, 0.10).fillCircle(c, c, 52);
-        g.fillStyle(0xA8E0D8, 0.18).fillCircle(c, c, 38);
-        g.lineStyle(4, 0xA8E0D8, 0.7).strokeCircle(c, c, 30); break;
+      case "goal":   // drawn light so B's warm/silver tint (H / D) shows through
+        g.fillStyle(0xFFFFFF, 0.12).fillCircle(c, c, 52);
+        g.fillStyle(0xFFFFFF, 0.22).fillCircle(c, c, 38);
+        g.lineStyle(4, 0xFFFFFF, 0.85).strokeCircle(c, c, 30); break;
+      case "crack":  // v4: a hairline crack in silver on a transparent tile
+        g.lineStyle(3, 0x9FD6E0, 0.9);
+        g.beginPath();
+        g.moveTo(28, 30); g.lineTo(54, 52); g.lineTo(46, 70); g.lineTo(72, 92); g.lineTo(98, 100);
+        g.moveTo(54, 52); g.lineTo(80, 44); g.lineTo(102, 30);
+        g.moveTo(46, 70); g.lineTo(30, 96);
+        g.strokePath(); break;
       case "plate":
         g.fillStyle(0x000000, 0.2).fillRoundedRect(22, 26, 84, 84, 18);
         g.fillStyle(0xC9A66B, 1).fillRoundedRect(22, 20, 84, 84, 18); break;
@@ -88,10 +97,39 @@
     }
   }
 
+  // ---- Sound settings (volume and mute), remembered in this browser if storage allows.
+  const SETTINGS_KEY = "mirrorworld.settings";
+  function loadSettings() {
+    try {
+      const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+      return { volume: typeof v.volume === "number" ? v.volume : 0.8, mute: !!v.mute };
+    } catch (e) { return { volume: 0.8, mute: false }; }
+  }
+  // The game's own copy is the source of truth (the audio engine reports changes late).
+  const SETTINGS = loadSettings();
+  function applySettings(scene) {
+    scene.sound.volume = SETTINGS.volume;
+    scene.sound.mute = SETTINGS.mute;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); } catch (e) {}
+  }
+  function toggleMute(scene) { SETTINGS.mute = !SETTINGS.mute; applySettings(scene); }
+
   function sortedLevels() {
     return (typeof LEVELS !== "undefined" ? LEVELS : [])
       .filter(l => l && l.map)
       .sort((a, b) => a.number - b.number);
+  }
+
+  // Phaser 3.90 bug: if two keys land in the same frame, the scene's "keydown" listener can be
+  // handed the earlier event again (one R ran RESTART three times). Every key handler goes
+  // through this wrapper, which ignores an event it has already seen.
+  const seenKeys = new WeakSet();
+  function onKey(scene, fn) {
+    scene.input.keyboard.on("keydown", e => {
+      if (seenKeys.has(e)) return;
+      seenKeys.add(e);
+      fn(e);
+    });
   }
 
   // The rules' events have a name field; read it whichever way A wrote it.
@@ -106,7 +144,6 @@
       IMAGES.forEach(k => this.load.image(k, "assets/images/" + k + ".png"));
       SOUNDS.forEach(([k, ext]) => this.load.audio(k, "assets/sounds/" + k + "." + ext));
       this.load.image("title", "assets/images/title.png"); // optional, 960x540
-      this.load.image("glitch", "assets/images/glitch.png"); // optional; drawn in code if missing
       this.load.image("story-bg", "assets/images/story-bg.png"); // optional 960x540 swirl behind story cards
       ROOM_NAMES.forEach(r => {   // optional; plain floor/wall is used if missing
         this.load.image("floor-" + r, "assets/images/floor-" + r + ".png");
@@ -116,6 +153,7 @@
 
     create() {
       IMAGES.forEach(key => { if (!this.textures.exists(key)) makeFallback(this, key); });
+      applySettings(this);
 
       if (sortedLevels().length === 0) {
         this.add.text(W / 2, H / 2, "No levels found", { fontFamily: UI_FONT, fontSize: "20px", color: COLORS.light }).setOrigin(0.5);
@@ -140,39 +178,243 @@
     });
   }
 
-  // ---------------------------------------------------------------- Title
+  // ---------------------------------------------------------------- Title (front page)
+  // C's title.png full screen (or a drawn title if it's missing), a gentle arrival,
+  // a living mirror glow, dust, and a menu: Start · Settings · Controls · Credits.
   class TitleScene extends Phaser.Scene {
     constructor() { super("Title"); }
 
     create(data) {
       this.cameras.main.setBackgroundColor(COLORS.bg);
-      const hasArt = this.textures.exists("title");
+      this.hasArt = this.textures.exists("title");
       // After Take Their Place the cycle repeats: Sam is the one behind the glass now.
-      const afterTake = !!(data && data.after === "take");
-      if (hasArt) {
-        this.add.image(W / 2, H / 2, "title").setDisplaySize(W, H);
-      } else {
-        this.add.text(W / 2, H / 2 - 70, "MIRROR WORLD", {
-          fontFamily: STORY_FONT, fontSize: "58px", color: COLORS.light
-        }).setOrigin(0.5);
+      this.afterTake = !!(data && data.after === "take");
+      this.leaving = false;
+      this.panel = null;        // null, "settings", "controls" or "credits"
+      this.panelObjects = [];
+      this.index = 0;
+
+      this.drawBackdrop();
+      this.drawDust();
+      this.drawMenu();
+
+      onKey(this, e => this.onKey(e));
+      this.cameras.main.fadeIn(900, 20, 21, 38);
+    }
+
+    // ---- art, logo and the living mirror
+    drawBackdrop() {
+      if (this.hasArt) {
+        const art = this.add.image(W / 2, H / 2, "title").setDisplaySize(W, H);
+        // A slow breath of light over the art, so the screen is never quite still.
+        const breath = this.add.ellipse(W / 2, H * 0.42, 520, 360, COLORS.cool, 0.05);
+        this.tweens.add({ targets: breath, alpha: { from: 0.4, to: 1 }, scaleX: 1.06, scaleY: 1.06,
+          duration: 3600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        // A soft dark band so the menu is always readable on top of the picture.
+        this.add.rectangle(W / 2, 420, W, 190, COLORS.bg, 0.45);
+        art.setAlpha(0);
+        this.tweens.add({ targets: art, alpha: 1, duration: 1200 });
+        return;
       }
 
-      const prompt = this.add.text(W / 2, H - 150, afterTake ? "New Game — Sam" : "Press Enter", {
-        fontFamily: UI_FONT, fontSize: "20px", color: COLORS.silver
-      }).setOrigin(0.5);
-      this.tweens.add({ targets: prompt, alpha: 0.35, duration: 1100, yoyo: true, repeat: -1 });
-
-      this.add.text(W / 2, H - 70,
-        "Arrows / WASD move · Space look · Z undo · R restart · M mute", {
-          fontFamily: UI_FONT, fontSize: "15px", color: COLORS.dim,
-          backgroundColor: hasArt ? "#141526AA" : null, padding: { x: 10, y: 5 }
-        }).setOrigin(0.5);
-
-      this.input.keyboard.on("keydown", e => {
-        if (e.code === "KeyM") this.sound.mute = !this.sound.mute;
+      // No art yet: draw a quiet title with a mirror seam and a flipped echo of the name.
+      const seamH = 230, seamY = 150;
+      [[22, 0.05], [12, 0.10], [6, 0.18]].forEach(([w, a]) => {
+        const g = this.add.rectangle(W / 2, seamY, w, seamH, COLORS.cool, a);
+        this.tweens.add({ targets: g, alpha: { from: 1, to: 0.5 }, duration: 2600, yoyo: true,
+          repeat: -1, ease: "Sine.easeInOut" });
       });
-      this.input.keyboard.once("keydown-ENTER", () => startGame(this));
-      this.cameras.main.fadeIn(600, 20, 21, 38);
+      this.add.rectangle(W / 2, seamY, 2, seamH, 0xE8FFFB, 0.8);
+
+      const logo = this.add.text(W / 2, 140, "MIRROR WORLD", {
+        fontFamily: STORY_FONT, fontSize: "62px", color: COLORS.light
+      }).setOrigin(0.5).setAlpha(0);
+      const echo = this.add.text(W / 2, 200, "MIRROR WORLD", {
+        fontFamily: STORY_FONT, fontSize: "62px", color: COLORS.silver
+      }).setOrigin(0.5).setScale(1, -0.55).setAlpha(0);
+      this.tweens.add({ targets: logo, alpha: 1, duration: 1400, delay: 300 });
+      this.tweens.add({ targets: echo, alpha: 0.14, duration: 1800, delay: 700 });
+    }
+
+    // Slow floating dust over everything.
+    drawDust() {
+      for (let i = 0; i < 26; i++) {
+        const d = this.add.circle(Phaser.Math.Between(0, W), Phaser.Math.Between(0, H),
+          Phaser.Math.FloatBetween(1, 2.4), 0xF0E6D2, Phaser.Math.FloatBetween(0.08, 0.3)).setDepth(5);
+        this.tweens.add({ targets: d, y: d.y - Phaser.Math.Between(40, 120), x: d.x + Phaser.Math.Between(-30, 30),
+          alpha: 0, duration: Phaser.Math.Between(6000, 12000), delay: Phaser.Math.Between(0, 4000),
+          repeat: -1, onRepeat: () => { d.x = Phaser.Math.Between(0, W); d.y = Phaser.Math.Between(H * 0.3, H); } });
+      }
+    }
+
+    // ---- the menu
+    items() {
+      return [
+        { label: this.afterTake ? "New Game — Sam" : "Start", act: () => this.start() },
+        { label: "Settings", act: () => this.openPanel("settings") },
+        { label: "Controls", act: () => this.openPanel("controls") },
+        { label: "Credits", act: () => this.openPanel("credits") }
+      ];
+    }
+
+    drawMenu() {
+      const top = this.hasArt ? 352 : 318, gap = 38;
+      this.rows = this.items().map((it, i) => {
+        const t = this.add.text(W / 2, top + i * gap, it.label, {
+          fontFamily: UI_FONT, fontSize: i === 0 ? "22px" : "18px", color: COLORS.light
+        }).setOrigin(0.5).setDepth(10).setAlpha(0).setInteractive({ useHandCursor: true });
+        t.on("pointerover", () => { if (!this.panel) { this.index = i; this.styleMenu(); } });
+        t.on("pointerdown", () => { if (!this.panel) it.act(); });
+        this.tweens.add({ targets: t, alpha: 1, duration: 700, delay: 900 + i * 120 });
+        return t;
+      });
+      this.marker = this.add.text(0, 0, "◆", { fontFamily: UI_FONT, fontSize: "11px", color: COLORS.warm })
+        .setOrigin(0.5).setDepth(10).setAlpha(0);
+      this.tweens.add({ targets: this.marker, alpha: 1, duration: 700, delay: 900 });
+
+      this.add.text(W / 2, H - 22, "↑ ↓ choose · Enter select · M mute", {
+        fontFamily: UI_FONT, fontSize: "13px", color: COLORS.dim
+      }).setOrigin(0.5).setDepth(10);
+      this.styleMenu();
+    }
+
+    styleMenu() {
+      this.rows.forEach((t, i) => t.setColor(i === this.index ? COLORS.silver : COLORS.light));
+      const r = this.rows[this.index];
+      this.marker.setPosition(r.x - r.width / 2 - 18, r.y);
+    }
+
+    start() {
+      if (this.leaving) return;
+      this.leaving = true;
+      this.cameras.main.fadeOut(500, 20, 21, 38);
+      this.cameras.main.once("camerafadeoutcomplete", () => startGame(this));
+    }
+
+    // ---- panels: Settings, Controls, Credits (Esc or Back to close)
+    openPanel(kind) {
+      this.closePanel();
+      this.panel = kind;
+      this.panelIndex = 0;
+      this.drawPanel();
+    }
+
+    closePanel() {
+      this.panelObjects.forEach(o => o.destroy());
+      this.panelObjects = [];
+      this.panel = null;
+    }
+
+    panelItems() {
+      if (this.panel !== "settings") return [{ label: "Back", act: () => this.closePanel() }];
+      const vol = Math.round(SETTINGS.volume * 100);
+      return [
+        { label: "Volume   " + vol + "%", adjust: d => this.setVolume(SETTINGS.volume + d * 0.1),
+          act: () => this.setVolume(SETTINGS.volume >= 0.99 ? 0 : SETTINGS.volume + 0.1) },
+        { label: "Sound   " + (SETTINGS.mute ? "Off" : "On"), act: () => { toggleMute(this); this.drawPanel(); } },
+        { label: "Back", act: () => this.closePanel() }
+      ];
+    }
+
+    setVolume(v) {
+      SETTINGS.volume = Math.round(Math.max(0, Math.min(1, v)) * 10) / 10;
+      if (SETTINGS.volume > 0) SETTINGS.mute = false;
+      applySettings(this);
+      this.drawPanel();
+    }
+
+    drawPanel() {
+      this.panelObjects.forEach(o => o.destroy());
+      const objs = this.panelObjects = [];
+      const kind = this.panel;
+      const titles = { settings: "Settings", controls: "Controls", credits: "Credits" };
+      const bodies = {
+        controls:
+          "Arrows / WASD   move\n" +
+          "(the other body moves the opposite way)\n" +
+          "Z   undo        R   restart\n" +
+          "Esc or P   pause menu        M   mute\n" +
+          "Enter   continue",
+        credits: storyText("credits")
+      };
+      const items = this.panelItems();
+      const body = bodies[kind] || "";
+      const bodyLines = body ? body.split("\n").length : 0;
+      const pw = 520, ph = 120 + bodyLines * 26 + items.length * 44, px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+
+      objs.push(this.add.rectangle(W / 2, H / 2, W, H, 0x0B0C18, 0.7).setDepth(60).setInteractive());
+      const g = this.add.graphics().setDepth(61);
+      g.fillStyle(0x000000, 0.25).fillRoundedRect(px - 4, py + 6, pw + 8, ph + 4, 22);
+      g.fillStyle(0x1C1D33, 0.98).fillRoundedRect(px, py, pw, ph, 20);
+      g.lineStyle(2, COLORS.cool, 0.25).strokeRoundedRect(px, py, pw, ph, 20);
+      objs.push(g);
+      objs.push(this.add.text(W / 2, py + 40, titles[kind], {
+        fontFamily: STORY_FONT, fontSize: "28px", color: COLORS.light
+      }).setOrigin(0.5).setDepth(62));
+
+      let y = py + 84;
+      if (body) {
+        objs.push(this.add.text(W / 2, y, body, {
+          fontFamily: kind === "credits" ? STORY_FONT : UI_FONT, fontSize: "16px", color: COLORS.light,
+          align: "center", lineSpacing: 8
+        }).setOrigin(0.5, 0).setDepth(62));
+        y += bodyLines * 26 + 14;
+      }
+
+      this.panelRows = items.map((it, i) => {
+        const ry = y + 18 + i * 44;
+        const hover = () => { this.panelIndex = i; this.stylePanel(); };
+        const t = this.add.text(W / 2, ry, it.label, { fontFamily: UI_FONT, fontSize: "19px", color: COLORS.light })
+          .setOrigin(0.5).setDepth(62).setInteractive({ useHandCursor: true });
+        t.on("pointerover", hover);
+        t.on("pointerdown", () => it.act());
+        const parts = [t];
+        if (it.adjust) {
+          [[-1, "◀", W / 2 - 120], [1, "▶", W / 2 + 120]].forEach(([d, glyph, x]) => {
+            const b = this.add.text(x, ry, glyph, { fontFamily: UI_FONT, fontSize: "20px", color: COLORS.light })
+              .setOrigin(0.5).setDepth(62).setPadding(14, 6, 14, 6).setInteractive({ useHandCursor: true });
+            b.on("pointerover", hover);
+            b.on("pointerdown", () => it.adjust(d));
+            parts.push(b);
+          });
+        }
+        objs.push(...parts);
+        return parts;
+      });
+      this.stylePanel();
+    }
+
+    stylePanel() {
+      (this.panelRows || []).forEach((parts, i) =>
+        parts.forEach(t => t.setColor(i === this.panelIndex ? COLORS.silver : COLORS.light)));
+    }
+
+    // ---- keys
+    onKey(e) {
+      if (e.repeat || this.leaving) return;
+      const c = e.code;
+      if (c === "KeyM") { toggleMute(this); if (this.panel === "settings") this.drawPanel(); return; }
+      const up = c === "ArrowUp" || c === "KeyW", down = c === "ArrowDown" || c === "KeyS";
+      const left = c === "ArrowLeft" || c === "KeyA", right = c === "ArrowRight" || c === "KeyD";
+      const ok = c === "Enter" || c === "Space";
+
+      if (this.panel) {
+        const items = this.panelItems(), it = items[this.panelIndex];
+        if (c === "Escape") return this.closePanel();
+        if (up) this.panelIndex = (this.panelIndex + items.length - 1) % items.length;
+        else if (down) this.panelIndex = (this.panelIndex + 1) % items.length;
+        else if ((left || right) && it.adjust) return it.adjust(left ? -1 : 1);
+        else if (ok) return it.act();
+        else return;
+        return this.stylePanel();
+      }
+
+      const items = this.items();
+      if (up) this.index = (this.index + items.length - 1) % items.length;
+      else if (down) this.index = (this.index + 1) % items.length;
+      else if (ok) return items[this.index].act();
+      else return;
+      this.styleMenu();
     }
   }
 
@@ -218,8 +460,8 @@
 
       let ready = false;
       this.time.delayedCall(400, () => { ready = true; });
-      this.input.keyboard.on("keydown", e => {
-        if (e.code === "KeyM") { this.sound.mute = !this.sound.mute; return; }
+      onKey(this, e => {
+        if (e.code === "KeyM") { toggleMute(this); return; }
         if (e.code !== "Enter" || !ready) return;
         ready = false;
         const rest = cards.slice(1);
@@ -232,7 +474,10 @@
     }
   }
 
-  // ---------------------------------------------------------------- Level
+  // ---------------------------------------------------------------- Level (design v4)
+  // v4: each body can be in either room (state.theo / state.other carry their side).
+  // Cracks (%) swap the two bodies through the glass. Goals: H is Theo's (warm), D is the
+  // other's (silver). Level 8 (final) ends the game: take, stay or break.
   class LevelScene extends Phaser.Scene {
     constructor() { super("Level"); }
 
@@ -241,20 +486,19 @@
       this.index = data.index || 0;
       this.level = this.levels[this.index];
       this.busy = false;     // an animation is playing
-      this.locked = false;   // v3: won or failed, waiting for the next load
+      this.locked = false;   // won, failed or ended: waiting for the next load
+      // Phaser reuses this scene object, so reset per-level things every time.
       this.doorSprites = [];
-      this.footprints = [];
-      this.cardShown = !!data.cardShown;
-      // Phaser reuses this scene object, so reset per-level flags every time.
-      this.cardOpen = false;
-      this.shimmerHinted = false;
+      this.crackSprites = {};
       this.textSlots = {};
-      this.glitchMarks = [];
+      this.menuOpen = false;
+      this.menuObjects = [];
+      this.textThisTurn = false;
+      this.failTimer = null;
 
-      // A restart arrives with the state (and events) that RESTART returned.
-      // Otherwise this is a fresh level.
-      this.state = data.state || Rules.load(this.level, data.carry);
-      let opening = (data.events && data.events.length) ? data.events : (this.state.startEvents || []);
+      // A restart arrives with the state that RESTART returned; otherwise a fresh level.
+      this.state = data.state || Rules.load(this.level);
+      const opening = (data.events && data.events.length) ? data.events : (this.state.startEvents || []);
 
       this.cameras.main.setBackgroundColor(COLORS.bg);
       this.layout();
@@ -262,27 +506,13 @@
       this.drawCharacters();
       this.drawBars();
 
-      this.theo = this.act3 ? this.rightBody : this.leftBody;
-      this.other = this.act3 ? this.leftBody : this.rightBody;
       this.mirror = { x: this.mirrorX, top: this.top, bottom: this.top + this.rows * TILE };
-
       fx("setup", this);
       fx("onLevelStart", this.level.number, this.level.act);
-      fx("setCracks", this.state.cracks || 0);
 
-      this.drawHud();
       this.setupKeys();
-
-      // Level 9: the new-controls card, once per visit (not again after a restart).
-      if (this.level.controlCard && !this.cardShown) this.openControlCard();
-
       this.busy = true;
       this.playEvents(opening).then(() => this.afterEvents());
-    }
-
-    // Sam's eye follows Sam, even while he slides.
-    update() {
-      if (this.eye && this.leftBody) this.eye.setPosition(this.leftBody.x, this.leftBody.y - 46);
     }
 
     // ---- layout and drawing
@@ -293,16 +523,14 @@
       this.rows = halves.length;
       this.leftCols = Math.max(...this.leftRows.map(r => r.length));
       this.rightCols = Math.max(...this.rightRows.map(r => r.length));
-      this.act3 = this.state.act === 3;
 
       const total = this.leftCols * TILE + STRIP + this.rightCols * TILE;
       this.leftX = Math.round((W - total) / 2);
       this.mirrorX = this.leftX + this.leftCols * TILE + STRIP / 2;
       this.rightX = this.leftX + this.leftCols * TILE + STRIP;
 
-      // Team change: level.instructions shows as small wrapped text just above the key bar,
-      // for the whole level. Room is kept for it (and for hints) so it never covers the board;
-      // if a tall room needs it, the text steps down a size or two.
+      // Optional level.instructions: small wrapped text just above the key bar, for the whole
+      // level. Room is kept for it (and for hints) so it never covers the board.
       const GAP = 6, HINT_H = 20, boardH = this.rows * TILE;
       let reserve = 0;
       this.instrText = null;
@@ -320,7 +548,6 @@
       }
       const free = H - 2 * BAR - reserve - boardH;
       this.top = Math.round(BAR + Math.max(4, free / 2));
-      // Hints sit just above the instructions (or just above the bar if there are none).
       this.hintY = this.instrText
         ? H - BAR - GAP - this.instrText.height - 4 - HINT_H / 2
         : H - BAR - 14;
@@ -331,7 +558,7 @@
       return { x: x0 + x * TILE + TILE / 2, y: this.top + y * TILE + TILE / 2 };
     }
 
-    // Art change: setDisplaySize, so any file size (128x128, or a 32x32 leftover) shows at 64 px.
+    // setDisplaySize, so any file size (128x128 or 32x32) shows at 64 px.
     image(side, x, y, key, layer) {
       const p = this.tilePos(side, x, y);
       const img = this.add.image(p.x, p.y, key).setDisplaySize(TILE, TILE);
@@ -342,7 +569,6 @@
     // Each half is its own rounded "screen" with a soft shadow; the tiles are clipped to it.
     drawMap() {
       const h = this.rows * TILE;
-      // This level's room tiles, if C made them; otherwise the plain ones.
       const room = ROOMS[this.level.number];
       const floorKey = room && this.textures.exists("floor-" + room) ? "floor-" + room : "floor";
       const wallKey = room && this.textures.exists("wall-" + room) ? "wall-" + room : "wall";
@@ -350,14 +576,12 @@
         .forEach(([side, rows, x0, cols]) => {
           const w = cols * TILE;
 
-          // Soft shadow: a few faint layers, each a little bigger and lower.
           const shadow = this.add.graphics().setDepth(-2);
           for (let i = 4; i >= 1; i--) {
             shadow.fillStyle(0x000000, 0.07)
               .fillRoundedRect(x0 - i * 3, this.top - i * 2 + 8, w + i * 6, h + i * 5, RADIUS + i * 3);
           }
 
-          // The room's tiles live in a layer clipped to the rounded screen.
           const layer = this.add.container(0, 0).setDepth(0);
           const maskShape = this.make.graphics({ add: false });
           maskShape.fillStyle(0xFFFFFF, 1).fillRoundedRect(x0, this.top, w, h, RADIUS);
@@ -369,26 +593,27 @@
               if (ch === " ") continue;
               if (ch === "#") { this.image(side, x, y, wallKey, layer); continue; }
               this.image(side, x, y, floorKey, layer);
-              if (ch === "G") this.image(side, x, y, "goal", layer);
+              if (ch === "H") this.image(side, x, y, "goal", layer).setTint(0xE9B872);       // Theo's goal
+              else if (ch === "D") this.image(side, x, y, "goal", layer).setTint(0x9FD6E0);  // the other's goal
               else if (ch === "^") this.image(side, x, y, "spikes", layer);
               else if (ch === "a" || ch === "b") this.image(side, x, y, "plate", layer);
               else if (ch === "F") this.image(side, x, y, "frame", layer);
+              else if (ch === "%") this.crackSprites[side + ":" + x + ":" + y] = this.image(side, x, y, "crack", layer);
               else if (ch === "A" || ch === "B") {
-                const s = this.image(side, x, y, "door-closed", layer);
-                this.doorSprites.push({ letter: ch, sprite: s });
+                this.doorSprites.push({ letter: ch, sprite: this.image(side, x, y, "door-closed", layer) });
               }
             }
           });
 
-          // A faint rim of light around the screen.
           this.add.graphics().setDepth(5)
             .lineStyle(2, COLORS.cool, 0.16).strokeRoundedRect(x0 + 1, this.top + 1, w - 2, h - 2, RADIUS);
         });
       this.refreshDoors();
+      this.refreshCracks();
       this.drawSeam(h);
     }
 
-    // The glowing seam down the middle of the 32 px mirror strip (C adds fog and shimmer on top).
+    // The glowing seam down the middle of the 32 px mirror strip.
     drawSeam(h) {
       const cy = this.top + h / 2;
       const glow = [
@@ -402,12 +627,12 @@
         yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
 
+    // Theo is always theo.png. The other is the reflection in Acts 1–2 and Sam in Act 3.
+    // Each is drawn in whichever room the state says, never assumed to be left or right.
     drawCharacters() {
-      const leftKey = this.act3 ? "sam" : "theo";
-      const rightKey = this.act3 ? "theo" : "reflection";
-      const p = this.state.person, r = this.state.reflection;
-      this.leftBody = this.image("left", p.x, p.y, leftKey).setDepth(10);
-      this.rightBody = this.image("right", r.x, r.y, rightKey).setDepth(10);
+      const t = this.state.theo, o = this.state.other;
+      this.theo = this.image(t.side, t.x, t.y, "theo").setDepth(10);
+      this.other = this.image(o.side, o.x, o.y, this.level.act === 3 ? "sam" : "reflection").setDepth(10);
     }
 
     drawBars() {
@@ -416,136 +641,11 @@
       const style = { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.light };
       this.add.text(16, BAR / 2, "Level " + this.level.number + " · " + (this.level.name || ""), style)
         .setOrigin(0, 0.5).setDepth(21);
-      this.keysText = this.add.text(W / 2, H - BAR / 2, "", { ...style, color: COLORS.dim })
+      // v4 bottom bar, plus the pause menu key.
+      this.add.text(W / 2, H - BAR / 2, "Arrows move · Z undo · R restart · Esc menu", { ...style, color: COLORS.dim })
         .setOrigin(0.5).setDepth(21);
       this.hintText = this.add.text(W / 2, this.hintY, "", { ...style, color: COLORS.light, fontSize: "15px", fontStyle: "italic" })
         .setOrigin(0.5).setAlpha(0).setDepth(21);
-      this.updateBars();
-    }
-
-    updateBars() {
-      let s;
-      if (this.act3) {
-        s = "Space Follow · Shift Resist · Arrow Break · Z undo · R restart";
-      } else {
-        s = "Arrows move · Z undo · R restart";
-        if (this.state.look) s += " · Space look";
-      }
-      this.keysText.setText(s);
-    }
-
-    // ---- Act 3 HUD: Will, Sam's footprints (the glowing one is the frame turn), Sam's eye
-    drawHud() {
-      this.willText = this.add.text(W - 16, BAR / 2, "", {
-        fontFamily: UI_FONT, fontSize: "17px", color: COLORS.light, fontStyle: "bold"
-      }).setOrigin(1, 0.5).setDepth(21);
-
-      this.eye = this.add.container(0, 0).setDepth(12).setVisible(false);
-      const g = this.add.graphics();
-      g.fillStyle(COLORS.bar, 0.85).fillRoundedRect(-22, -14, 44, 28, 14);
-      g.fillStyle(0xF0E6D2, 1).fillEllipse(0, 0, 30, 16);
-      g.fillStyle(0x141526, 1).fillCircle(0, 0, 5);
-      this.eye.add(g);
-      this.tweens.add({ targets: g, y: -3, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-
-      this.updateHud();
-    }
-
-    hudValues() { return this.state; }
-
-    // Team change: glitch tiles. Every disobey tile still waiting this attempt gets a faint
-    // silver crack mark and a small arrow toward where the reflection will go.
-    // Redrawn from the state after every step, undo and restart.
-    drawGlitches() {
-      (this.glitchMarks || []).forEach(o => o.destroy());
-      this.glitchMarks = [];
-      (this.state.glitches || []).forEach(gl => {
-        const side = gl.who === "person" ? "left" : "right";
-        const p = this.tilePos(side, gl.x, gl.y);
-        if (this.textures.exists("glitch")) {
-          this.glitchMarks.push(this.add.image(p.x, p.y, "glitch").setDisplaySize(TILE, TILE)
-            .setAlpha(0.75).setDepth(3));
-        } else {
-          const g = this.add.graphics().setDepth(3);
-          g.lineStyle(2, COLORS.cool, 0.5);
-          g.beginPath();
-          g.moveTo(p.x - 20, p.y - 14); g.lineTo(p.x - 6, p.y - 4); g.lineTo(p.x - 12, p.y + 6);
-          g.lineTo(p.x + 4, p.y + 16); g.moveTo(p.x - 6, p.y - 4); g.lineTo(p.x + 10, p.y - 10);
-          g.lineTo(p.x + 20, p.y - 2);
-          g.strokePath();
-          this.glitchMarks.push(g);
-        }
-        // A small arrow toward dir, near the tile's edge.
-        const d = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] }[gl.dir];
-        if (d) {
-          const ax = p.x + d[0] * 20, ay = p.y + d[1] * 20;
-          const angle = Math.atan2(d[1], d[0]);
-          const tri = this.add.triangle(ax, ay, 0, -6, 10, 0, 0, 6, COLORS.cool, 0.8)
-            .setRotation(angle).setDepth(3);
-          this.glitchMarks.push(tri);
-        }
-      });
-    }
-
-    updateHud() {
-      this.drawGlitches();
-      const v = this.hudValues();
-      const show = this.act3;
-
-      const will = v.will;
-      this.willText.setVisible(show && will !== null && will !== undefined);
-      if (this.willText.visible) this.willText.setText("Will  " + will);
-
-      // Footprints: faint pairs of marks on Sam's next steps.
-      this.footprints.forEach(o => { this.tweens.killTweensOf(o); o.destroy(); });
-      this.footprints = [];
-      if (show) {
-        (v.footprints || []).forEach(f => {
-          const p = this.tilePos("left", f.x, f.y);
-          const color = f.glow ? 0xF2A65A : 0xF0E6D2;
-          const alpha = f.glow ? 0.9 : 0.28;
-          const a = this.add.ellipse(p.x - 9, p.y + 4, 11, 18, color, alpha).setDepth(6);
-          const b = this.add.ellipse(p.x + 9, p.y - 6, 11, 18, color, alpha).setDepth(6);
-          this.footprints.push(a, b);
-          if (f.glow) {
-            const halo = this.add.circle(p.x, p.y, 26, 0xF2A65A, 0.18).setDepth(5);
-            this.footprints.push(halo);
-            this.tweens.add({ targets: [a, b, halo], alpha: { from: alpha, to: 0.35 }, duration: 900,
-              yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-          }
-        });
-      }
-
-      this.eye.setVisible(show && !!v.samLooking);
-    }
-
-    // Level 12 warning (moment "strain"): the Will counter turns warm and pulses gently.
-    pulseWill() {
-      if (!this.willText.visible) return;
-      this.tweens.killTweensOf(this.willText);
-      this.willText.setColor(COLORS.warm).setScale(1);
-      this.tweens.add({ targets: this.willText, scale: 1.18, duration: 450, yoyo: true, repeat: 3,
-        ease: "Sine.easeInOut", onComplete: () => this.willText.setScale(1) });
-    }
-
-    // ---- Level 9 control card: full screen, stays until Space.
-    openControlCard() {
-      this.cardOpen = true;
-      const bg = this.add.rectangle(W / 2, H / 2, W, H, COLORS.bg, 0.97).setDepth(40);
-      const t = this.add.text(W / 2, H / 2, storyText("controlCard"), {
-        fontFamily: STORY_FONT, fontSize: "24px", color: COLORS.light, align: "center",
-        lineSpacing: 10, wordWrap: { width: 780 }
-      }).setOrigin(0.5).setDepth(41).setAlpha(0);
-      this.tweens.add({ targets: t, alpha: 1, duration: 800 });
-      this.controlCardObjects = [bg, t];
-    }
-
-    closeControlCard() {
-      this.cardOpen = false;
-      this.cardShown = true;
-      this.tweens.add({ targets: this.controlCardObjects, alpha: 0, duration: 400,
-        onComplete: () => this.controlCardObjects.forEach(o => o.destroy()) });
-      this.pulseKeys();   // the Space hint pulses for the first 3 turns
     }
 
     refreshDoors() {
@@ -553,70 +653,177 @@
       this.doorSprites.forEach(d => d.sprite.setTexture(open.includes(d.letter) ? "door-open" : "door-closed"));
     }
 
-    // After UNDO: put everything straight where the state says (no slide).
-    redraw() {
-      const p = this.tilePos("left", this.state.person.x, this.state.person.y);
-      const r = this.tilePos("right", this.state.reflection.x, this.state.reflection.y);
-      this.leftBody.setPosition(p.x, p.y);
-      this.rightBody.setPosition(r.x, r.y);
-      this.refreshDoors();
-      this.updateBars();
-      this.updateHud();
-      fx("setCracks", this.state.cracks || 0);
+    // A used crack is plain floor: hide its crack mark (it comes back after undo/restart).
+    refreshCracks() {
+      const used = this.state.usedCracks || [];
+      Object.entries(this.crackSprites).forEach(([key, s]) => { s.setAlpha(1).setVisible(!used.includes(key)); });
     }
 
-    // ---- keys
+    // After UNDO: put everything straight where the state says (no slide).
+    redraw() {
+      const t = this.state.theo, o = this.state.other;
+      const pt = this.tilePos(t.side, t.x, t.y), po = this.tilePos(o.side, o.x, o.y);
+      this.theo.setPosition(pt.x, pt.y).setAlpha(1);
+      this.other.setPosition(po.x, po.y).setAlpha(1);
+      this.refreshDoors();
+      this.refreshCracks();
+    }
+
+    // ---- keys (v4: arrows/WASD, Z, R, M; Esc or P opens the pause menu)
     setupKeys() {
-      this.input.keyboard.addCapture("UP,DOWN,LEFT,RIGHT,SPACE,SHIFT");
+      this.input.keyboard.addCapture("UP,DOWN,LEFT,RIGHT,SPACE");
       const map = {
         ArrowUp: "U", KeyW: "U", ArrowDown: "D", KeyS: "D",
         ArrowLeft: "L", KeyA: "L", ArrowRight: "R", KeyD: "R",
         KeyZ: "UNDO", KeyR: "RESTART"
       };
-      this.input.keyboard.on("keydown", e => {
+      onKey(this, e => {
         if (e.repeat) return;
-        if (e.code === "KeyM") { this.sound.mute = !this.sound.mute; return; }
-        if (this.cardOpen) { if (e.code === "Space") this.closeControlCard(); return; }
-        let input = map[e.code];
-        if (e.code === "Space") input = this.act3 ? "FOLLOW" : (this.state.look ? "LOOK" : null);
-        if (e.code === "ShiftLeft" || e.code === "ShiftRight") input = this.act3 ? "RESIST" : null;
+        if (e.code === "Escape" || e.code === "KeyP") { this.menuOpen ? this.closeMenu() : this.openMenu(); return; }
+        if (this.menuOpen) { this.menuKey(e.code); return; }
+        if (e.code === "KeyM") { toggleMute(this); return; }
+        const input = map[e.code];
         if (input) this.send(input);
       });
     }
 
+    // ---- Pause menu (Esc or P): Resume, Restart level, Volume, Sound, Quit to title.
+    menuItems() {
+      const vol = Math.round(SETTINGS.volume * 100);
+      return [
+        { label: "Resume", act: () => this.closeMenu() },
+        { label: "Restart level", act: () => { this.closeMenu(); this.send("RESTART"); } },
+        { label: "Volume   ◀  " + vol + "%  ▶", value: "Volume   " + vol + "%",
+          adjust: d => this.setVolume(SETTINGS.volume + d * 0.1),
+          act: () => this.setVolume(SETTINGS.volume >= 0.99 ? 0 : SETTINGS.volume + 0.1) },
+        { label: "Sound   " + (SETTINGS.mute ? "Off" : "On"), act: () => { toggleMute(this); this.drawMenu(); } },
+        { label: "Quit to title", act: () => { this.closeMenu(); this.locked = true; this.scene.start("Title"); } }
+      ];
+    }
+
+    setVolume(v) {
+      SETTINGS.volume = Math.round(Math.max(0, Math.min(1, v)) * 10) / 10;
+      if (SETTINGS.volume > 0) SETTINGS.mute = false;   // turning it up un-mutes
+      applySettings(this);
+      this.drawMenu();
+    }
+
+    openMenu() {
+      this.menuOpen = true;
+      this.menuIndex = 0;
+      this.drawMenu();
+    }
+
+    closeMenu() {
+      this.menuOpen = false;
+      (this.menuObjects || []).forEach(o => o.destroy());
+      this.menuObjects = [];
+    }
+
+    drawMenu() {
+      (this.menuObjects || []).forEach(o => o.destroy());
+      const objs = this.menuObjects = [];
+      const items = this.menuItems();
+      const pw = 380, ph = 120 + items.length * 46, px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+      this.menuGeom = { px, pw, rowY: i => py + 100 + i * 46 };
+
+      const dim = this.add.rectangle(W / 2, H / 2, W, H, 0x0B0C18, 0.72).setDepth(60).setInteractive();
+      const panel = this.add.graphics().setDepth(61);
+      panel.fillStyle(0x000000, 0.25).fillRoundedRect(px - 4, py + 6, pw + 8, ph + 4, 22);
+      panel.fillStyle(0x1C1D33, 0.98).fillRoundedRect(px, py, pw, ph, 20);
+      panel.lineStyle(2, COLORS.cool, 0.25).strokeRoundedRect(px, py, pw, ph, 20);
+      this.menuHL = this.add.graphics().setDepth(61);
+      objs.push(dim, panel, this.menuHL);
+
+      objs.push(this.add.text(W / 2, py + 44, "Paused", {
+        fontFamily: STORY_FONT, fontSize: "30px", color: COLORS.light
+      }).setOrigin(0.5).setDepth(62));
+
+      const style = { fontFamily: UI_FONT, fontSize: "19px", color: COLORS.light };
+      this.menuRows = [];
+      items.forEach((it, i) => {
+        const y = this.menuGeom.rowY(i);
+        // Hovering only moves the highlight (no redraw), so the next click always lands.
+        const hover = () => { this.menuIndex = i; this.styleMenu(); };
+        const row = this.add.text(W / 2, y, it.label, style).setOrigin(0.5).setDepth(62)
+          .setInteractive({ useHandCursor: true });
+        row.on("pointerover", hover);
+        row.on("pointerdown", () => it.act());
+        const parts = [row];
+        if (it.adjust) {
+          row.setText(it.value);
+          [[-1, "◀", W / 2 - 120], [1, "▶", W / 2 + 120]].forEach(([d, glyph, x]) => {
+            const b = this.add.text(x, y, glyph, { ...style, fontSize: "20px" }).setOrigin(0.5).setDepth(62)
+              .setPadding(14, 6, 14, 6).setInteractive({ useHandCursor: true });
+            b.on("pointerover", hover);
+            b.on("pointerdown", () => it.adjust(d));
+            parts.push(b);
+          });
+        }
+        this.menuRows.push(parts);
+        objs.push(...parts);
+      });
+
+      objs.push(this.add.text(W / 2, py + ph - 22, "↑ ↓ choose · Enter select · ← → volume · Esc close", {
+        fontFamily: UI_FONT, fontSize: "12px", color: COLORS.dim
+      }).setOrigin(0.5).setDepth(62));
+      this.styleMenu();
+    }
+
+    styleMenu() {
+      const g = this.menuGeom;
+      this.menuHL.clear().fillStyle(COLORS.cool, 0.12)
+        .fillRoundedRect(g.px + 24, g.rowY(this.menuIndex) - 19, g.pw - 48, 38, 12);
+      this.menuRows.forEach((parts, i) =>
+        parts.forEach(t => t.setColor(i === this.menuIndex ? COLORS.silver : COLORS.light)));
+    }
+
+    menuKey(code) {
+      const items = this.menuItems();
+      const it = items[this.menuIndex];
+      if (code === "ArrowUp" || code === "KeyW") this.menuIndex = (this.menuIndex + items.length - 1) % items.length;
+      else if (code === "ArrowDown" || code === "KeyS") this.menuIndex = (this.menuIndex + 1) % items.length;
+      else if ((code === "ArrowLeft" || code === "KeyA") && it.adjust) return it.adjust(-1);
+      else if ((code === "ArrowRight" || code === "KeyD") && it.adjust) return it.adjust(1);
+      else if (code === "Enter" || code === "Space") return it.act();
+      else if (code === "KeyM") { toggleMute(this); return this.drawMenu(); }
+      else return;
+      this.styleMenu();
+    }
+
+    // ---- sending input to the rules
     send(input) {
       if (this.busy || this.locked) return;
+      // After a fail, Z and R still work during the short pause: cancel the automatic restart.
+      if (this.failTimer && (input === "UNDO" || input === "RESTART")) {
+        this.failTimer.remove(false);
+        this.failTimer = null;
+      }
       this.textThisTurn = false;
       const res = Rules.step(this.state, input);
       if (!res || !res.state) return;
+      // An input that does nothing comes back as the same state with no events: ignore it.
+      if (res.state === this.state && !(res.events || []).length) return;
 
       if (input === "RESTART") return this.restartWith(res);
 
       this.state = res.state;
-      if (input === "UNDO") {
-        this.redraw();
-        this.busy = true;
-        this.playEvents(res.events || []).then(() => this.afterEvents());
-        return;
-      }
-
       this.busy = true;
+      if (input === "UNDO") this.redraw();
       this.playEvents(res.events || []).then(() => this.afterEvents());
     }
 
     // A restart rebuilds the scene from the RESTART state, so Effects.setup runs again.
     restartWith(res) {
       this.locked = true;
-      this.scene.restart({ index: this.index, state: res.state, events: res.events || [], cardShown: this.cardShown });
+      this.scene.restart({ index: this.index, state: res.state, events: res.events || [] });
     }
 
     afterEvents() {
       this.busy = false;
-      this.updateBars();
-      this.updateHud();
-      if (this.level.controlCard && this.cardShown && (this.state.turn || 0) < 3 && this.state.turn > 0) this.pulseKeys();
-      // v3: lock keys once the level is won or failed.
-      if (this.state.status === "won" || this.state.status === "failed") this.locked = true;
+      // After a win or an ending, keys are ignored until the next level loads.
+      // After a fail, Z and R still work until the automatic restart.
+      if (["won", "ended"].includes(this.state.status)) this.locked = true;
     }
 
     // ---- events
@@ -636,7 +843,7 @@
       }
     }
 
-    sprite(who) { return who === "reflection" ? this.rightBody : (who === "person" ? this.leftBody : null); }
+    sprite(who) { return who === "theo" ? this.theo : (who === "other" ? this.other : null); }
 
     tween(cfg) { return new Promise(res => this.tweens.add({ ...cfg, onComplete: res })); }
 
@@ -646,8 +853,8 @@
       switch (eventName(ev)) {
         case "move": {
           const s = this.sprite(ev.who);
-          if (!s) return;
-          const p = this.tilePos(ev.who === "person" ? "left" : "right", ev.to.x, ev.to.y);
+          if (!s || !ev.to) return;
+          const p = this.tilePos(ev.to.side, ev.to.x, ev.to.y);
           fx("onMove", s);
           return this.tween({ targets: s, x: p.x, y: p.y, duration: SLIDE_MS });
         }
@@ -658,77 +865,83 @@
           return this.tween({ targets: s, scaleX: sx * 0.9, scaleY: sy * 1.1, duration: 70, yoyo: true,
             ease: "Sine.easeOut" }).then(() => s.setScale(sx, sy));
         }
+        case "swap":
+          return this.playSwap(ev);
         case "door":
           this.doorSprites.filter(d => d.letter === ev.letter)
             .forEach(d => d.sprite.setTexture(ev.open ? "door-open" : "door-closed"));
           return;
-        case "crack":
-          fx("onCrack", this.mirrorX, this.rightBody.y);
-          fx("setCracks", ev.cracks);
-          return;
-        case "glassBreak":
-          fx("onGlassBreak");
-          fx("setCracks", 0);
-          // Level 8's smash: TOGETHER appears on the mirror side, when it's already too late.
-          if (this.level.swap) return this.showTogether();
-          return this.wait(400);
         case "moment":
-          // Team change: pass the shimmer's direction on to C (undefined if there is none).
-          fx("onMoment", ev.kind, this.sprite(ev.who || "reflection"), ev.dir);
-          // A warned disobey is coming: draw the eye to the Look key.
-          if (ev.kind === "shimmer" && this.state.look && !this.act3) this.pulseKeys();
-          if (ev.kind === "strain") this.pulseWill();
+          // blink / wave / tilt: always on the other body.
+          fx("onMoment", ev.kind, this.other);
           return this.wait(250);
         case "text":
           return this.showText(ev.words, ev.side, ev.mirrored);
         case "hint":
-          // If glass text comes in the same batch, show the hint a little after it.
           if (this.batchHasText) this.time.delayedCall(1100, () => this.showHint(ev.words));
           else this.showHint(ev.words);
           return;
         case "fail":
-          this.locked = true;
-          // NOT TONIGHT comes as text just before the fail: give it time to be read.
-          return this.wait(this.textThisTurn ? 2200 : 600).then(() => {
+          // Pause 600 ms, then restart, unless the player presses Z or R first.
+          this.failTimer = this.time.delayedCall(600, () => {
+            this.failTimer = null;
             const res = Rules.step(this.state, "RESTART");
             if (res && res.state) this.restartWith(res);
           });
-        case "win":
+          return;
+        case "win": {
           this.locked = true;
           fx("onWin");
+          const next = this.levels[this.index + 1];
+          // After Level 6 (end of Act 2): the swap scene first.
+          const swapScene = next && this.level.act === 2 && next.act === 3;
           // Give a message that just appeared (like COME UPSTAIRS) time to be read.
-          return this.wait(this.textThisTurn ? 2400 : 800).then(() => this.nextLevel());
-        case "swap":
-          // Level 8: the swap card, then Act 3's card, then Level 9. (B6 adds TOGETHER and the control card.)
-          this.locked = true;
-          return this.wait(800).then(() => this.nextLevel(["swap", "act3"]));
+          return this.wait(this.textThisTurn ? 2400 : 800).then(() => {
+            if (!swapScene) return this.nextLevel();
+            // Effects.onWin() fades the camera out, so bring the room back before TOGETHER.
+            const cam = this.cameras.main;
+            cam.resetFX();
+            cam.fadeIn(400, 20, 21, 38);
+            return this.wait(400).then(() => this.showTogether()).then(() => this.nextLevel(["swap", "act3"]));
+          });
+        }
         case "ending":
           this.locked = true;
-          return this.wait(1200).then(() => this.showEnding(ev.which, ev.mercy));
+          if (ev.which === "take" || ev.which === "break") fx("onGlassBreak");
+          return this.wait(this.textThisTurn ? 2400 : 1200).then(() => this.showEnding(ev.which));
         default:
           return;
       }
     }
 
-    // TOGETHER fades onto the mirror side for about 2 seconds.
+    // A crack swaps the two bodies through the glass: a quick fade out and in at their new
+    // places, the crack becomes floor, and C's onCrack plays at the crack's screen position.
+    playSwap(ev) {
+      const at = ev.at ? this.tilePos(ev.at.side, ev.at.x, ev.at.y) : { x: this.mirrorX, y: this.theo.y };
+      fx("onCrack", at.x, at.y);
+      return this.tween({ targets: [this.theo, this.other], alpha: 0, duration: 160 }).then(() => {
+        if (ev.theo) { const p = this.tilePos(ev.theo.side, ev.theo.x, ev.theo.y); this.theo.setPosition(p.x, p.y); }
+        if (ev.other) { const p = this.tilePos(ev.other.side, ev.other.x, ev.other.y); this.other.setPosition(p.x, p.y); }
+        if (ev.at) { const c = this.crackSprites[ev.at.side + ":" + ev.at.x + ":" + ev.at.y]; if (c) c.setVisible(false); }
+        return this.tween({ targets: [this.theo, this.other], alpha: 1, duration: 220 });
+      });
+    }
+
+    // After Level 6: TOGETHER fades onto the glass, then the swap card.
     showTogether() {
-      const cx = this.rightX + this.rightCols * TILE / 2;
-      const cy = this.top + this.rows * TILE / 2;
-      const t = this.add.text(cx, cy, storyText("together") || "TOGETHER", {
+      const t = this.add.text(this.mirrorX, this.top + this.rows * TILE / 2, storyText("together") || "TOGETHER", {
         fontFamily: STORY_FONT, fontSize: "44px", color: COLORS.silver
-      }).setOrigin(0.5).setScale(-1, 1).setAlpha(0).setDepth(30);
+      }).setOrigin(0.5).setAlpha(0).setDepth(30);
       fx("onMoment", "text", null, "TOGETHER");
-      return this.tween({ targets: t, alpha: 1, duration: 600, hold: 1200, yoyo: true })
+      return this.tween({ targets: t, alpha: 1, duration: 700, hold: 1300, yoyo: true })
         .then(() => t.destroy());
     }
 
     // Writing fades onto misty glass on that side. Mirrored text is flipped left-to-right.
-    // Two messages on different sides can show at once (Act 3).
     showText(words, side, mirrored) {
       const left = side === "left";
       const cx = left ? this.leftX + this.leftCols * TILE / 2 : this.rightX + this.rightCols * TILE / 2;
       const cy = this.top + TILE * 0.55;
-      this.textSlots = this.textSlots || {};
       if (this.textSlots[side]) this.textSlots[side].forEach(o => { this.tweens.killTweensOf(o); o.destroy(); });
 
       const t = this.add.text(cx, cy, words || "", {
@@ -737,7 +950,6 @@
       }).setOrigin(0.5).setAlpha(0).setDepth(16);
       if (mirrored) t.setScale(-1, 1);
 
-      // A soft patch of mist behind the words.
       const mist = this.add.graphics().setAlpha(0).setDepth(15);
       mist.fillStyle(0xF0E6D2, 0.10).fillRoundedRect(cx - t.width / 2 - 20, cy - t.height / 2 - 10, t.width + 40, t.height + 20, 14);
 
@@ -749,42 +961,28 @@
       return this.wait(60);   // don't hold up the player's next key
     }
 
-    // Soft text just above the bottom bar, like "Maybe let it."
     showHint(words) {
       this.tweens.killTweensOf(this.hintText);
       this.hintText.setText(words || "").setAlpha(0);
       this.tweens.add({ targets: this.hintText, alpha: 1, duration: 500, hold: 3500, yoyo: true });
     }
 
-    // Gently brighten the bottom key hints twice (used when the shimmer warns of a disobey).
-    pulseKeys() {
-      this.tweens.killTweensOf(this.keysText);
-      this.keysText.setColor(COLORS.silver).setAlpha(1);
-      this.tweens.add({ targets: this.keysText, alpha: 0.4, duration: 350, yoyo: true, repeat: 1,
-        onComplete: () => this.keysText.setColor(COLORS.dim).setAlpha(1) });
-    }
-
-    // An ending's screen, then (Break It Together with Mercy 2) Mara's nod, then the credits,
-    // then the title. After Take Their Place the title says "New Game — Sam".
-    showEnding(which, mercy) {
+    // An ending's screen, then the credits, then the title.
+    // After Take Their Place the title says "New Game — Sam".
+    showEnding(which) {
       this.locked = true;
       const card = { take: "endingTake", break: "endingBreak", stay: "endingStay" }[which];
-      const cards = [];
-      if (card) cards.push(card);
-      if (which === "break" && mercy === 2) cards.push("maraNod");
-      cards.push("credits");
+      const cards = card ? [card, "credits"] : ["credits"];
       this.scene.start("Story", { cards, next: { scene: "Title", data: { after: which } } });
     }
 
-    // Go to the next level with state.carry. When the act changes, its story card comes first.
+    // Go to the next level. When the act changes, its story card comes first.
     nextLevel(cardsOverride) {
-      const carry = this.state.carry;
       const next = this.levels[this.index + 1];
-
       let cards = cardsOverride || [];
       if (!cardsOverride && next && next.act !== this.level.act) cards = ["act" + next.act];
 
-      const target = next ? { scene: "Level", data: { index: this.index + 1, carry } } : { scene: "End", data: {} };
+      const target = next ? { scene: "Level", data: { index: this.index + 1 } } : { scene: "End", data: {} };
       if (cards.length) this.scene.start("Story", { cards, next: target });
       else this.scene.start(target.scene, target.data);
     }
@@ -798,7 +996,8 @@
       this.cameras.main.setBackgroundColor(COLORS.bg);
       this.add.text(W / 2, H / 2 - 20, msg, { fontFamily: STORY_FONT, fontSize: "28px", color: COLORS.light }).setOrigin(0.5);
       this.add.text(W / 2, H / 2 + 28, "Press Enter for the title", { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.dim }).setOrigin(0.5);
-      this.input.keyboard.once("keydown-ENTER", () => this.scene.start("Title"));
+      let gone = false;
+      onKey(this, e => { if (e.code === "Enter" && !gone) { gone = true; this.scene.start("Title"); } });
     }
   }
 

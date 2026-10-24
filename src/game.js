@@ -22,6 +22,10 @@
     cool: 0xA8E0D8, dim: "#9A97A8", faint: "#6A6880", bar: 0x0E0F1C
   };
 
+  // C's room tiles (optional): floor-<room>.png and wall-<room>.png, picked by level number.
+  const ROOMS = { 2: "bathroom", 5: "kitchen", 6: "cellar", 7: "library", 8: "attic", 9: "kitchen", 12: "attic" };
+  const ROOM_NAMES = ["bathroom", "kitchen", "cellar", "library", "attic"];
+
   const IMAGES = ["theo", "reflection", "sam", "floor", "wall", "goal", "plate",
     "door-closed", "door-open", "spikes", "frame"];
   const SOUNDS = [["step", "wav"], ["crack", "wav"], ["break", "wav"], ["moment", "wav"],
@@ -100,6 +104,11 @@
       SOUNDS.forEach(([k, ext]) => this.load.audio(k, "assets/sounds/" + k + "." + ext));
       this.load.image("title", "assets/images/title.png"); // optional, 960x540
       this.load.image("glitch", "assets/images/glitch.png"); // optional; drawn in code if missing
+      this.load.image("story-bg", "assets/images/story-bg.png"); // optional 960x540 swirl behind story cards
+      ROOM_NAMES.forEach(r => {   // optional; plain floor/wall is used if missing
+        this.load.image("floor-" + r, "assets/images/floor-" + r + ".png");
+        this.load.image("wall-" + r, "assets/images/wall-" + r + ".png");
+      });
     }
 
     create() {
@@ -170,12 +179,29 @@
   class StoryScene extends Phaser.Scene {
     constructor() { super("Story"); }
 
+    updateBg() {
+      if (this.bg) this.bg.setAngle((this.game.loop.time / 120000 * 360) % 360);
+    }
+
+    update() { this.updateBg(); }
+
     create(data) {
       const cards = (data.cards || []).filter(k => storyText(k));
       const next = data.next || { scene: "Title", data: {} };
       if (cards.length === 0) { this.scene.start(next.scene, next.data); return; }
 
       this.cameras.main.setBackgroundColor(COLORS.bg);
+
+      // C's swirl behind the story text, turning very slowly (one turn every 120 s).
+      // Scaled so its short side covers the screen's diagonal: no corners at any angle.
+      // The angle comes from the game clock, so it carries on smoothly from card to card.
+      this.bg = null;
+      if (this.textures.exists("story-bg")) {
+        const cover = Math.hypot(W, H) / Math.min(W, H);
+        this.bg = this.add.image(W / 2, H / 2, "story-bg").setDisplaySize(W * cover, H * cover);
+        this.updateBg();
+      }
+
       const t = this.add.text(W / 2, H / 2 - 10, storyText(cards[0]), {
         fontFamily: STORY_FONT, fontSize: "26px", color: COLORS.light,
         align: "center", lineSpacing: 12, wordWrap: { width: 760 }
@@ -289,6 +315,10 @@
     // Each half is its own rounded "screen" with a soft shadow; the tiles are clipped to it.
     drawMap() {
       const h = this.rows * TILE;
+      // This level's room tiles, if C made them; otherwise the plain ones.
+      const room = ROOMS[this.level.number];
+      const floorKey = room && this.textures.exists("floor-" + room) ? "floor-" + room : "floor";
+      const wallKey = room && this.textures.exists("wall-" + room) ? "wall-" + room : "wall";
       [["left", this.leftRows, this.leftX, this.leftCols], ["right", this.rightRows, this.rightX, this.rightCols]]
         .forEach(([side, rows, x0, cols]) => {
           const w = cols * TILE;
@@ -310,8 +340,8 @@
             for (let x = 0; x < row.length; x++) {
               const ch = row[x];
               if (ch === " ") continue;
-              if (ch === "#") { this.image(side, x, y, "wall", layer); continue; }
-              this.image(side, x, y, "floor", layer);
+              if (ch === "#") { this.image(side, x, y, wallKey, layer); continue; }
+              this.image(side, x, y, floorKey, layer);
               if (ch === "G") this.image(side, x, y, "goal", layer);
               else if (ch === "^") this.image(side, x, y, "spikes", layer);
               else if (ch === "a" || ch === "b") this.image(side, x, y, "plate", layer);

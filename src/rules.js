@@ -1,9 +1,10 @@
 // Rules (Person A). The game's brain: no graphics, just state in, state out.
 // Follows the Shared contracts (Claude Playbook) with Design Update v3 on top.
-// Step A2: mirror rule, walls, goals, LOOK as a still turn, UNDO, RESTART, carry.
+// Step A2: mirror rule, walls, goals, UNDO, RESTART, carry.
 // Step A3: plates, doors and spikes (v3: no boxes).
-// Still to come: A4 tile triggers/disobeys/lag/Mercy,
-// A7 Act 3 (Follow/Resist/Break), A10 Level 12 endings.
+// Step A4: the glass (cracks, glassBreak), tile triggers, disobeys, Look, Mercy,
+//          slip, lag and the Level 5 undo lock.
+// Still to come: A7 Act 3 (Follow/Resist/Break, Level 8 swap), A10 Level 12 endings.
 const Rules = (function () {
 
   const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
@@ -76,6 +77,76 @@ const Rules = (function () {
     state.openDoors = open;
   }
 
+  // ---------- The glass ----------
+
+  function addCrack(state, events) {
+    state.cracks += 1;
+    events.push({ type: "crack", cracks: state.cracks });
+    if (state.cracks >= 5) breakGlass(state, events);
+  }
+
+  // The glass breaks and is whole again.
+  function breakGlass(state, events) {
+    state.cracks = 0;
+    events.push({ type: "glassBreak" });
+  }
+
+  // ---------- Script events ----------
+
+  function fire(state, ev, events) {
+    switch (ev.do) {
+      case "blink":
+      case "wave":
+      case "tilt":
+      case "shimmer":
+      case "strain":
+        events.push({ type: "moment", kind: ev.do, who: "reflection" });
+        break;
+      case "text":
+        events.push({
+          type: "text",
+          words: ev.words || "",
+          side: ev.side === "left" ? "left" : "right",
+          mirrored: ev.mirrored !== false
+        });
+        break;
+      case "hint":
+        events.push({ type: "hint", words: ev.words || "" });
+        break;
+      case "disobey":
+        // v3: the warning comes now, the disobey on the next move.
+        if (ev.warn) events.push({ type: "moment", kind: "shimmer", who: "reflection" });
+        state._pending = { dir: ev.dir, kind: ev.kind === "required" ? "required" : "stoppable" };
+        break;
+      case "slip":
+        state.slipTurns = ev.turns || 1;
+        events.push({ type: "moment", kind: "slip", who: "reflection" });
+        break;
+      case "undoLock":
+        // Once per playthrough: from here, UNDO can't go back past this point.
+        if (!state.carry.undoLockUsed) state._undoFloor = state._history.length;
+        break;
+    }
+  }
+
+  // Fire every event whose trigger matches and that hasn't fired yet this attempt.
+  function fireMatching(state, events, matches) {
+    state._events.forEach((ev, i) => {
+      if (state._fired.indexOf(i) !== -1 || !matches(ev)) return;
+      state._fired.push(i);
+      fire(state, ev, events);
+    });
+  }
+
+  // v3 tile trigger: at: { who, x, y }, in that character's half.
+  function standsOn(state, at) {
+    if (!at || typeof at !== "object") return false;
+    const body = at.who === "reflection" ? state.reflection : state.person;
+    return body.x === at.x && body.y === at.y;
+  }
+
+  // ---------- State helpers ----------
+
   // A deep copy of the state for the history: everything except the history itself.
   function snapshot(state) {
     const s = {};
@@ -98,6 +169,8 @@ const Rules = (function () {
   function unchanged(old) {
     return { state: restore(snapshot(old), old._start, old._history), events: [] };
   }
+
+  // ---------- Rules.load ----------
 
   function load(level, carry) {
     const halves = splitMap(level.map || []);
@@ -127,47 +200,96 @@ const Rules = (function () {
         mercy: inCarry.mercy || 0,
         undoLockUsed: !!inCarry.undoLockUsed
       },
-      startEvents: [],            // v3: at: "start" events arrive in A4
+      startEvents: [],
       _left: clearStart(halves.left, "T"),
-      _right: clearStart(halves.right, "R")
+      _right: clearStart(halves.right, "R"),
+      _events: copy(level.events || []),
+      _fired: [],                 // indexes of events fired this attempt
+      _pending: null,             // a disobey due on the next move: { dir, kind }
+      _lag: level.lag || 0,
+      _moves: [],                 // Theo's move each turn (null = stood still), for lag
+      _undoFloor: null,           // UNDO can't go below this history length
+      _lookedAtRequired: false    // Look cancelled a required disobey: hint after RESTART
     };
-    updateDoors(state, null);   // in case someone starts on a plate
-    state._start = snapshot(state);
     state._history = [];
+    updateDoors(state, null);   // in case someone starts on a plate
+    fireMatching(state, state.startEvents, ev => ev.at === "start");
+    state._start = snapshot(state);
     return state;
   }
 
-  // One turn in Acts 1-2. dir is "U"/"D"/"L"/"R", or null for LOOK (both stay still).
+  // ---------- Rules.step ----------
+
+  // One turn in Acts 1-2. input is "U"/"D"/"L"/"R", or "LOOK" (Theo stares, the reflection freezes).
   // Turn order: work out both moves, move both at once, plates and doors,
-  // cracks (A4), spikes, goals, then this turn's script events (A4).
-  function takeTurn(old, dir) {
+  // cracks, spikes, goals, then this turn's script events.
+  function takeTurn(old, input) {
     const state = restore(snapshot(old), old._start, old._history.concat([snapshot(old)]));
     const events = [];
+    const look = input === "LOOK";
     state.turn += 1;
 
-    if (dir) {
-      // Work out both moves first, then move both at once.
-      const moves = [
-        { who: "person", rows: state._left, dir: dir },
-        { who: "reflection", rows: state._right, dir: MIRROR[dir] }
-      ];
-      moves.forEach(m => {
-        const body = state[m.who];
-        const d = DIRS[m.dir];
-        const to = { x: body.x + d[0], y: body.y + d[1] };
-        m.to = isSolid(state, tileAt(m.rows, to.x, to.y)) ? null : to;
-      });
-      moves.forEach(m => {
-        if (m.to) {
-          state[m.who] = m.to;
-          events.push({ type: "move", who: m.who, to: { x: m.to.x, y: m.to.y } });
-        } else {
-          events.push({ type: "blocked", who: m.who });
-        }
-      });
+    // Work out both moves.
+    let personDir = null;
+    let reflDir = null;
+    const slipping = state.slipTurns > 0;
+    if (slipping) {
+      // Slip: the keys move the reflection, and Theo mirrors it.
+      state.slipTurns -= 1;
+      if (!look) {
+        reflDir = input;
+        personDir = MIRROR[input];
+      }
+    } else if (!look) {
+      personDir = input;
+      reflDir = MIRROR[input];
     }
 
+    // Lag N: the reflection mirrors Theo's move from N turns ago, and stays still
+    // for the first N turns. Looks and blocked moves still count as turns.
+    state._moves.push(personDir);
+    if (state._lag > 0 && !look && !slipping) {
+      const past = state._moves[state._moves.length - 1 - state._lag];
+      reflDir = past ? MIRROR[past] : null;
+    }
+
+    // A disobey due now: the reflection moves its own way, unless Theo looks.
+    let disobeyed = false;
+    if (state._pending) {
+      const due = state._pending;
+      state._pending = null;
+      if (look) {
+        if (due.kind === "required") state._lookedAtRequired = true;
+      } else {
+        reflDir = due.dir;
+        disobeyed = true;
+        if (due.kind === "stoppable") state.carry.mercy += 1;
+      }
+    }
+
+    // Move both at once.
+    const moves = [
+      { who: "person", rows: state._left, dir: personDir },
+      { who: "reflection", rows: state._right, dir: reflDir }
+    ].filter(m => m.dir && DIRS[m.dir]);
+    moves.forEach(m => {
+      const body = state[m.who];
+      const d = DIRS[m.dir];
+      const to = { x: body.x + d[0], y: body.y + d[1] };
+      m.to = isSolid(state, tileAt(m.rows, to.x, to.y)) ? null : to;
+    });
+    moves.forEach(m => {
+      if (m.to) {
+        state[m.who] = m.to;
+        events.push({ type: "move", who: m.who, to: { x: m.to.x, y: m.to.y } });
+      } else {
+        events.push({ type: "blocked", who: m.who });
+      }
+    });
+
     updateDoors(state, events);
+
+    if (disobeyed) addCrack(state, events);
 
     if (onEither(state, "^")) {
       state.status = "failed";
@@ -176,6 +298,10 @@ const Rules = (function () {
       // Win: both stand on their goal at the same moment.
       state.status = "won";
       events.push({ type: "win" });
+    }
+
+    if (state.status !== "failed") {
+      fireMatching(state, events, ev => standsOn(state, ev.at));
     }
 
     state.carry.cracks = state.cracks;
@@ -188,16 +314,30 @@ const Rules = (function () {
     if (oldState.status === "failed" && input !== "RESTART") return unchanged(oldState);
 
     if (input === "RESTART") {
-      return { state: restore(oldState._start, oldState._start, []), events: [] };
+      const state = restore(oldState._start, oldState._start, []);
+      // The undo lock happens once per playthrough, even across restarts.
+      state.carry.undoLockUsed = state.carry.undoLockUsed || oldState.carry.undoLockUsed;
+      // The level opens again, so its start events play again.
+      const events = copy(oldState._start.startEvents || []);
+      if (oldState._lookedAtRequired) events.push({ type: "hint", words: "Maybe let it." });
+      return { state, events };
     }
 
     if (input === "UNDO") {
       const history = oldState._history;
+      if (oldState._undoFloor !== null && history.length <= oldState._undoFloor) {
+        // Refused. The first time ever, the glass remembers.
+        const result = unchanged(oldState);
+        if (!oldState.carry.undoLockUsed) {
+          result.state.carry.undoLockUsed = true;
+          result.events.push({ type: "text", words: "IT REMEMBERS", side: "right", mirrored: true });
+        }
+        return result;
+      }
       if (history.length === 0) return unchanged(oldState);
-      return {
-        state: restore(history[history.length - 1], oldState._start, history.slice(0, -1)),
-        events: []
-      };
+      const state = restore(history[history.length - 1], oldState._start, history.slice(0, -1));
+      state.carry.undoLockUsed = state.carry.undoLockUsed || oldState.carry.undoLockUsed;
+      return { state, events: [] };
     }
 
     // Act 3 inputs (FOLLOW / RESIST / Break) arrive in A7.
@@ -205,7 +345,7 @@ const Rules = (function () {
 
     if (input === "LOOK") {
       if (!oldState.look) return unchanged(oldState);
-      return takeTurn(oldState, null);
+      return takeTurn(oldState, "LOOK");
     }
 
     if (DIRS[input]) return takeTurn(oldState, input);

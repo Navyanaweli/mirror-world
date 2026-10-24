@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mirror World – effects test</title>
+<title>Aaina – effects test (v4)</title>
 <style>
   :root {
     --bg: #11141C; --panel: #181D28; --floor: #232A3A; --wall: #4A5570;
@@ -35,7 +35,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Mirror World effects test</h1>
+  <h1>Aaina effects test (design v4)</h1>
   <p class="note">Only for testing effects.js. The real game is index.html. Press Setup first.</p>
 
   <div id="game"></div>
@@ -49,9 +49,8 @@
       <button id="btnAct3">Act 3 view</button>
     </div>
     <div class="group">
-      <h2>Glass (cracks: <span id="crackCount">0</span>)</h2>
-      <span id="crackButtons"></span><br>
-      <button id="btnCrack">Crack +1</button>
+      <h2>Glass</h2>
+      <button id="btnSwap">Swap</button>
       <button id="btnBreak">Glass break</button>
     </div>
     <div class="group">
@@ -78,31 +77,32 @@ const STRIP = 32;       // mirror strip width on screen
 const COLS = 7, ROWS = 5;
 
 const IMAGES = ['theo', 'reflection', 'sam', 'floor', 'wall', 'goal', 'plate',
-                'door-closed', 'door-open', 'spikes', 'frame'];
+                'door-closed', 'door-open', 'spikes', 'frame', 'crack'];
 const SOUNDS = ['step.wav', 'crack.wav', 'break.wav', 'moment.wav', 'win.wav',
                 'theme-theo.mp3', 'theme-sam.mp3', 'text.wav', 'card.wav',
                 'voice-im-sorry.mp3', 'voice-let-me-out.mp3', 'voice-it-has-to-be-someone.mp3',
-                'voice-together.mp3', 'voice-one-more.mp3', 'voice-is-someone-there.mp3'];
+                'voice-together.mp3', 'voice-is-someone-there.mp3',
+                'voice-come-upstairs.mp3', 'voice-i-can-see-you.mp3'];
 const CHARACTERS = ['theo', 'reflection', 'sam'];
 const FALLBACK = {
   theo: '#E9B872', reflection: '#9FD6E0', sam: '#EAE4D6',
   floor: '#232A3A', wall: '#4A5570', goal: '#5C5040', plate: '#6E7890',
-  'door-closed': '#5A4A3A', 'door-open': '#1A1F2B', spikes: '#7A8296', frame: '#A88E64'
+  'door-closed': '#5A4A3A', 'door-open': '#1A1F2B', spikes: '#7A8296', frame: '#A88E64', crack: '#2F3A4E'
 };
 
 // Test room only. Legend: # wall . floor T/R starts G goal ^ spikes F frame
-// a/b plates A/B closed doors O open door
-const ROOM_LEFT  = ["#######", "#..^.F#", "#T..G.#", "#a...A#", "#######"];
+// a/b plates A/B closed doors O open door % crack
+const ROOM_LEFT  = ["#######", "#..^.F#", "#T..G.#", "#a.%.A#", "#######"];
 const ROOM_RIGHT = ["#######", "#F.^..#", "#.G..R#", "#O...b#", "#######"];
 const TILE_IMAGE = { '#': 'wall', 'G': 'goal', 'a': 'plate', 'b': 'plate', 'A': 'door-closed',
-                     'B': 'door-closed', 'O': 'door-open', '^': 'spikes', 'F': 'frame' };
+                     'B': 'door-closed', 'O': 'door-open', '^': 'spikes', 'F': 'frame', '%': 'crack' };
 
 const LEFT0 = (960 - (COLS * TILE * 2 + STRIP)) / 2;
 const TOP0 = (540 - ROWS * TILE) / 2;
 const MIRROR_X = LEFT0 + COLS * TILE + STRIP / 2;
 const RIGHT0 = LEFT0 + COLS * TILE + STRIP;
 
-const testState = { level: 1, act: 1, cracks: 0 };
+const testState = { level: 1, act: 1 };
 const failedFiles = new Set();
 
 // ---------- Log and safe calls ----------
@@ -130,7 +130,7 @@ function call(name, ...args) {
   }
 }
 
-function actFor(level) { return level <= 4 ? 1 : level <= 8 ? 2 : 3; }
+function actFor(level) { return level <= 3 ? 1 : level <= 6 ? 2 : 3; }
 
 function tileCenter(side, col, row) {
   const x0 = side === 'left' ? LEFT0 : RIGHT0;
@@ -211,10 +211,7 @@ class TestScene extends Phaser.Scene {
     window.testScene = this;
 
     if (this.run === 'setup' || this.run === 'full') call('setup', this);
-    if (this.run === 'full') {
-      call('onLevelStart', testState.level, act);
-      call('setCracks', testState.cracks);
-    }
+    if (this.run === 'full') call('onLevelStart', testState.level, act);
   }
 
   drawHalf(side, rows) {
@@ -274,10 +271,9 @@ new Phaser.Game({
 const $ = id => document.getElementById(id);
 const scene = () => window.testScene;
 function restart(run) { if (scene()) scene().scene.restart({ run }); }
-function showCracks() { $('crackCount').textContent = testState.cracks; }
 
 const select = $('levelSelect');
-for (let n = 1; n <= 12; n++) {
+for (let n = 1; n <= 8; n++) {
   const o = document.createElement('option');
   o.value = n; o.textContent = 'Level ' + n + ' (act ' + actFor(n) + ')';
   select.appendChild(o);
@@ -290,38 +286,25 @@ select.addEventListener('change', () => {
 $('btnSetup').onclick = () => restart('setup');
 $('btnLevelStart').onclick = () => restart('full');
 $('btnAct3').onclick = () => {
-  select.value = 9; testState.level = 9; testState.act = 3; restart('full');
+  select.value = 7; testState.level = 7; testState.act = 3; restart('full');
 };
 
-for (let n = 0; n <= 5; n++) {
-  const b = document.createElement('button');
-  b.textContent = 'Cracks ' + n;
-  b.onclick = () => { testState.cracks = n; showCracks(); call('setCracks', n); };
-  $('crackButtons').appendChild(b);
-}
-$('btnCrack').onclick = () => {
+$('btnSwap').onclick = () => {
   const s = scene(); if (!s) return;
-  if (testState.cracks >= 5) { log('Already at 5 cracks. Try Glass break.'); return; }
-  testState.cracks++; showCracks();
-  call('onCrack', s.mirror.x, s.rightSprite.y);
-  call('setCracks', testState.cracks);
+  call('onCrack', s.mirror.x, (s.mirror.top + s.mirror.bottom) / 2);
 };
-$('btnBreak').onclick = () => {
-  call('onGlassBreak');
-  testState.cracks = 0; showCracks();
-  call('setCracks', 0);
-};
+$('btnBreak').onclick = () => call('onGlassBreak');
 
 $('btnMoveTheo').onclick = () => { const s = scene(); if (s) s.stepSprite(s.theo); };
 $('btnMoveOther').onclick = () => { const s = scene(); if (s) s.stepSprite(s.other); };
 $('btnWin').onclick = () => call('onWin');
 
-['blink', 'wave', 'tilt', 'shimmer', 'slip', 'text', 'strain'].forEach(kind => {
+['blink', 'wave', 'tilt', 'text'].forEach(kind => {
   const b = document.createElement('button');
   b.textContent = kind[0].toUpperCase() + kind.slice(1);
   b.onclick = () => {
     const s = scene(); if (!s) return;
-    const body = (kind === 'text' || kind === 'strain') ? null : s.rightSprite;
+    const body = kind === 'text' ? null : s.other;
     if (kind === 'text') s.showSampleText();
     call('onMoment', kind, body);
   };
@@ -329,20 +312,13 @@ $('btnWin').onclick = () => call('onWin');
 });
 
 // Voice lines with misty text
-["I'M SORRY", 'LET ME OUT', 'IT HAS TO BE SOMEONE', 'TOGETHER', 'ONE MORE', 'IS SOMEONE THERE?'].forEach(words => {
+["I'M SORRY", 'LET ME OUT', 'IT HAS TO BE SOMEONE', 'TOGETHER', 'IS SOMEONE THERE?', 'COME UPSTAIRS', 'I CAN SEE YOU'].forEach(words => {
   const b = document.createElement('button');
   b.textContent = 'Text: ' + words;
   b.onclick = () => { const s = scene(); if (s) call('onMoment', 'text', null, words); };
   $('momentButtons').appendChild(b);
 });
 
-// Glitch shimmer: warns which way the reflection will pull next turn
-['U', 'D', 'L', 'R'].forEach(dir => {
-  const b = document.createElement('button');
-  b.textContent = 'Shimmer ' + dir;
-  b.onclick = () => { const s = scene(); if (s) call('onMoment', 'shimmer', s.other, dir); };
-  $('momentButtons').appendChild(b);
-});
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-// Mirror World — effects (Person C)
+// Mirror World (Aaina) — effects (Person C), design v4
 // Phaser 3.90, plain JavaScript. Nothing here may crash if something is missing.
 
 const Effects = {
@@ -7,8 +7,6 @@ const Effects = {
   _tweens: [],
   _updaters: [],
   _onUpdate: null,
-  _crackGfx: null,
-  _cracksShown: -1,
 
   // ---------- Helpers ----------
   _keep(obj) { if (obj) this._objs.push(obj); return obj; },
@@ -23,7 +21,6 @@ const Effects = {
     this._objs.forEach(o => { try { o.destroy(); } catch (e) {} });
     if (this.scene && this._onUpdate) this.scene.events.off('update', this._onUpdate);
     this._objs = []; this._tweens = []; this._updaters = []; this._onUpdate = null;
-    this._crackGfx = null; this._cracksShown = -1;
   },
 
   // Plays a sound only if it was loaded
@@ -38,17 +35,6 @@ const Effects = {
     const s = this.scene;
     if (!s || !obj) return;
     s.time.delayedCall(ms, () => { try { obj.destroy(); } catch (e) {} });
-  },
-
-  // Same numbers every time for the same seed, so each crack always looks the same
-  _rng(seed) {
-    let a = seed * 9973 + 12345;
-    return () => {
-      a |= 0; a = a + 0x6D2B79F5 | 0;
-      let t = Math.imul(a ^ a >>> 15, 1 | a);
-      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-      return ((t ^ t >>> 14) >>> 0) / 4294967296;
-    };
   },
 
   _canvas(key, w, h, draw, smooth) {
@@ -108,8 +94,7 @@ const Effects = {
   setup(scene) {
     if (!scene) return;
     if (this.scene === scene) this._clear();
-    else { this._objs = []; this._tweens = []; this._updaters = []; this._onUpdate = null;
-           this._crackGfx = null; this._cracksShown = -1; }
+    else { this._objs = []; this._tweens = []; this._updaters = []; this._onUpdate = null; }
     this.scene = scene;
 
     const w = scene.scale.width, h = scene.scale.height;
@@ -194,90 +179,54 @@ const Effects = {
     });
   },
 
-  // ---------- C4: the glass ----------
+  // ---------- v4: swapping through the glass ----------
 
-  // Where each crack sits on the mirror, as a share of its height (crack 1 first)
-  _crackSpots: [0.32, 0.64, 0.46, 0.82, 0.18],
-
-  // Builds the lines for crack number k: a few jagged branches from one point
-  _crackLines(k, m) {
-    const rand = this._rng(k);
-    const half = 15;                                   // stay inside the 32 px strip
-    const cy = m.top + (m.bottom - m.top) * this._crackSpots[k - 1];
-    const cx = m.x + (rand() - 0.5) * 10;
-    const lines = [];
-    const branches = 3 + Math.floor(rand() * 2);
-    for (let b = 0; b < branches; b++) {
-      const up = b % 2 === 0 ? -1 : 1;
-      let angle = up * (Math.PI / 2) + (rand() - 0.5) * 1.2;
-      let x = cx, y = cy;
-      const pts = [{ x, y }];
-      const steps = 4 + Math.floor(rand() * 3);
-      for (let i = 0; i < steps; i++) {
-        const len = 6 + rand() * 9;
-        angle += (rand() - 0.5) * 0.9;
-        x = Phaser.Math.Clamp(x + Math.cos(angle) * len, m.x - half, m.x + half);
-        y = Phaser.Math.Clamp(y + Math.sin(angle) * len, m.top + 2, m.bottom - 2);
-        pts.push({ x, y });
-      }
-      lines.push(pts);
-    }
-    return { lines, cx, cy };
-  },
-
-  setCracks(n) {
-    const s = this.scene;
-    if (!s || !s.mirror) return;
-    n = Phaser.Math.Clamp(Math.floor(n || 0), 0, 5);
-    if (n === this._cracksShown && this._crackGfx && this._crackGfx.active) return;
-
-    this._try('cracks', () => {
-      if (this._crackGfx) { try { this._crackGfx.destroy(); } catch (e) {} }
-      const g = this._keep(s.add.graphics().setDepth(8));
-      for (let k = 1; k <= n; k++) {
-        const { lines, cx, cy } = this._crackLines(k, s.mirror);
-        lines.forEach(pts => {                        // soft glow under each line
-          g.lineStyle(4, 0x9FD6E0, 0.18);
-          g.strokePoints(pts, false);
-        });
-        lines.forEach(pts => {                        // the sharp crack itself
-          g.lineStyle(1.5, 0xDDF3F7, 0.95);
-          g.strokePoints(pts, false);
-        });
-        g.fillStyle(0xFFFFFF, 0.9);
-        g.fillCircle(cx, cy, 1.5);
-      }
-      this._crackGfx = g;
-      this._cracksShown = n;
-    });
-  },
-
+  // A crack was stepped on and the two swapped places: sparkle, ripple along the mirror, sound
   onCrack(x, y) {
     const s = this.scene;
     if (!s) return;
-    this._try('crack sparkle', () => {
+    this._try('swap sparkle', () => {
       const sparkle = s.add.particles(x, y, 'fx-dot', {
-        speed: { min: 20, max: 60 }, angle: { min: 0, max: 360 },
-        lifespan: { min: 450, max: 800 }, scale: { start: 0.7, end: 0 },
-        alpha: { start: 1, end: 0 }, tint: 0xDDF3F7, blendMode: 'ADD', emitting: false
+        speed: { min: 20, max: 70 }, angle: { min: 0, max: 360 },
+        lifespan: { min: 450, max: 850 }, scale: { start: 0.8, end: 0 },
+        alpha: { start: 1, end: 0 }, tint: [0xDDF3F7, 0x9FD6E0], blendMode: 'ADD', emitting: false
       }).setDepth(9);
-      sparkle.explode(12);
-      this._later(1000, sparkle);
+      sparkle.explode(16);
+      this._later(1100, sparkle);
 
-      const ring = s.add.circle(x, y, 6, 0x9FD6E0, 0.5).setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
-      s.tweens.add({ targets: ring, scale: 4, alpha: 0, duration: 450, ease: 'Sine.easeOut',
+      const ring = s.add.circle(x, y, 8, 0x9FD6E0, 0.5).setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
+      s.tweens.add({ targets: ring, scale: 5, alpha: 0, duration: 500, ease: 'Sine.easeOut',
                      onComplete: () => { try { ring.destroy(); } catch (e) {} } });
     });
-    this._play('crack', { volume: 0.35 });
+    this._try('mirror ripple', () => {
+      const m = s.mirror;
+      if (!m) return;
+      const hgt = m.bottom - m.top, mid = (m.top + m.bottom) / 2;
+      // the whole strip brightens softly
+      const glow = s.add.rectangle(m.x, mid, 32, hgt, 0x9FD6E0, 1).setAlpha(0)
+        .setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
+      s.tweens.add({ targets: glow, alpha: 0.28, duration: 220, yoyo: true, hold: 120,
+                     onComplete: () => { try { glow.destroy(); } catch (e) {} } });
+      // two bands run up and down the mirror from the crack's height
+      const fromY = Phaser.Math.Clamp(y, m.top, m.bottom);
+      [m.top, m.bottom].forEach(toY => {
+        const band = s.add.rectangle(m.x, fromY, 40, 46, 0xDDF3F7, 0.35)
+          .setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
+        s.tweens.add({ targets: band, y: toY, alpha: 0, scaleX: 0.6, duration: 550, ease: 'Sine.easeOut',
+                       onComplete: () => { try { band.destroy(); } catch (e) {} } });
+      });
+    });
+    this._play('crack', { volume: 0.4 });
   },
 
+  // Take Their Place and Break It Together: the mirror bursts into soft light
   onGlassBreak() {
     const s = this.scene;
     if (!s) return;
     this._try('glass break', () => {
       const m = s.mirror;
       if (m) {
-        for (let i = 0; i < 6; i++) {                 // soft light bursting along the whole mirror
+        for (let i = 0; i < 6; i++) {
           const y = m.top + (m.bottom - m.top) * (i + 0.5) / 6;
           const burst = s.add.particles(m.x, y, 'fx-dot', {
             speed: { min: 40, max: 140 }, angle: { min: 0, max: 360 },
@@ -297,7 +246,7 @@ const Effects = {
     this._play('break', { volume: 0.4 });
   },
 
-  // ---------- C6: moments, colour, sound ----------
+  // ---------- Moments, colour and sound ----------
   _music: null,
 
   // Briefly lowers the music, then brings it back
@@ -309,34 +258,17 @@ const Effects = {
     });
   },
 
-  // A soft, low hum made in code (no sound file needed)
-  _hum() {
-    const s = this.scene;
-    const ctx = s && s.sound && s.sound.context;
-    if (!ctx || !ctx.createOscillator) return;
-    this._try('hum', () => {
-      const t = ctx.currentTime;
-      const osc = ctx.createOscillator(), gain = ctx.createGain();
-      osc.type = 'sine'; osc.frequency.setValueAtTime(70, t);
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.08, t + 0.3);
-      gain.gain.linearRampToValueAtTime(0, t + 1.4);
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.start(t); osc.stop(t + 1.5);
-    });
-  },
-
   // Remembers a sprite's normal size so moments always return to it
   _base(body) {
     if (body._mwBase === undefined) body._mwBase = { sx: body.scaleX, sy: body.scaleY, angle: body.angle };
     return body._mwBase;
   },
 
-  // How grey Theo is on each level (0 = full colour, 1 = fully grey)
-  _greyFor(level, act) {
-    if (act === 3) return 0.65;
-    if (level <= 4) return 0;
-    return Math.min(0.65, (level - 4) * 0.16);
+  // How grey Theo is on each level: full colour 1-3, fading 4-6, faded 7-8
+  _greyFor(level) {
+    if (level <= 3) return 0;
+    if (level >= 7) return 0.6;
+    return (level - 3) * 0.2;
   },
 
   _setColour(body, grey, bright) {
@@ -355,22 +287,22 @@ const Effects = {
     if (!s) return;
     this._try('fade in', () => s.cameras.main.fadeIn(700, 17, 20, 28));
 
-    // Theo fades toward grey through Act 2; the reflection grows brighter
-    const grey = this._greyFor(level, act);
-    this._setColour(s.theo, grey, 0);
-    if (act === 2) this._setColour(s.other, 0, Math.min(0.25, (level - 4) * 0.06));
+    // Theo fades toward grey through Act 2 while the reflection brightens
+    this._setColour(s.theo, this._greyFor(level), 0);
+    if (level >= 4 && level <= 6) this._setColour(s.other, 0, (level - 3) * 0.08);
 
-    // One quiet loop (music themes are cut): Theo's theme, or Sam's in Act 3 if it exists
+    // Music: Theo's theme in Acts 1-2, Sam's theme in Act 3 (silent if the file is missing)
     this._try('music', () => {
-      let key = act === 3 && s.cache.audio.exists('theme-sam') ? 'theme-sam' : 'theme-theo';
-      if (!s.cache.audio.exists(key)) return;
+      const key = act === 3 ? 'theme-sam' : 'theme-theo';
+      if (!s.cache.audio.exists(key)) {
+        if (this._music) { try { this._music.stop(); } catch (e) {} this._music = null; }
+        return;
+      }
       if (!this._music || this._music.key !== key || !this._music.isPlaying) {
         if (this._music) { try { this._music.stop(); this._music.destroy(); } catch (e) {} }
         this._music = s.sound.add(key, { loop: true, volume: 0.25 });
         this._music.play();
       }
-      const pan = act === 1 ? -0.4 : act === 2 ? Math.min(0.4, -0.2 + (level - 5) * 0.2) : 0;
-      if (this._music.setPan) this._music.setPan(pan);
     });
   },
 
@@ -390,20 +322,31 @@ const Effects = {
     });
   },
 
-  onMoment(type, body, dir) {
+  // Which voice line goes with which words (only if that sound was loaded)
+  _voices: {
+    "IM SORRY": 'voice-im-sorry',
+    "LET ME OUT": 'voice-let-me-out',
+    "IT HAS TO BE SOMEONE": 'voice-it-has-to-be-someone',
+    "TOGETHER": 'voice-together',
+    "IS SOMEONE THERE": 'voice-is-someone-there',
+    "COME UPSTAIRS": 'voice-come-upstairs',
+    "I CAN SEE YOU": 'voice-i-can-see-you'
+  },
+
+  _voiceFor(words) {
+    if (typeof words !== 'string') return null;
+    const k = words.toUpperCase().replace(/[^A-Z ]/g, '').replace(/\s+/g, ' ').trim();
+    const key = this._voices[k];
+    const s = this.scene;
+    return key && s && s.cache.audio.exists(key) ? key : null;
+  },
+
+  // Moments: blink, wave, tilt and text. For text, B may pass the words as a third argument
+  onMoment(type, body, words) {
     const s = this.scene;
     if (!s) return;
-    if (type === 'strain') { this._strain(); return; }
-    if (type === 'shimmer' && body && dir) {          // a warned disobey: show which way it will pull
-      this._play('moment', { volume: 0.25 });
-      this._dip();
-      this._glitch(body, dir);
-      return;
-    }
 
-    // misty writing gets its own airy sound if text.wav exists,
-    // plus a whispered voice when B passes the words as the third argument
-    const voice = type === 'text' ? this._voiceFor(dir) : null;
+    const voice = type === 'text' ? this._voiceFor(words) : null;
     const hasText = type === 'text' && s.cache.audio.exists('text');
     this._play(hasText ? 'text' : 'moment', { volume: voice ? 0.2 : (hasText ? 0.35 : 0.25) });
     if (voice) this._play(voice, { volume: 0.7 });
@@ -427,23 +370,6 @@ const Effects = {
         s.tweens.add({ targets: body, angle: b.angle + 10, duration: 260, yoyo: true, hold: 500,
                        ease: 'Sine.easeInOut' });
       }
-      else if (type === 'shimmer' && body) {          // a wavy silver glow for about a second
-        const glow = s.add.image(body.x, body.y, 'fx-light').setTint(0x9FD6E0)
-          .setBlendMode(Phaser.BlendModes.ADD).setDepth(body.depth - 1).setScale(0.6).setAlpha(0);
-        s.tweens.add({ targets: glow, alpha: 0.9, scale: 0.8, duration: 250, yoyo: true, hold: 500,
-                       repeat: 0, onUpdate: () => glow.setPosition(body.x, body.y),
-                       onComplete: () => { try { glow.destroy(); } catch (e) {} } });
-        body.setTint(0xDDF3F7);
-        s.time.delayedCall(1000, () => { try { body.clearTint(); } catch (e) {} });
-      }
-      else if (type === 'slip') {                     // a brief ripple across the screen
-        const w = s.scale.width, h = s.scale.height;
-        const band = s.add.rectangle(-60, h / 2, 120, h, 0x9FD6E0, 0.12)
-          .setBlendMode(Phaser.BlendModes.ADD).setDepth(955);
-        s.tweens.add({ targets: band, x: w + 60, duration: 650, ease: 'Sine.easeInOut',
-                       onComplete: () => { try { band.destroy(); } catch (e) {} } });
-        s.cameras.main.shake(250, 0.002);
-      }
       else if (type === 'text') {                     // a soft mist puff on the glass (B draws the words)
         const m = s.mirror;
         if (!m) return;
@@ -455,93 +381,6 @@ const Effects = {
         }).setDepth(9);
         mist.explode(14);
         this._later(2000, mist);
-      }
-    });
-  },
-
-  // Which voice line goes with which words (only if that sound was loaded)
-  _voices: {
-    "IM SORRY": 'voice-im-sorry',
-    "LET ME OUT": 'voice-let-me-out',
-    "IT HAS TO BE SOMEONE": 'voice-it-has-to-be-someone',
-    "TOGETHER": 'voice-together',
-    "ONE MORE": 'voice-one-more',
-    "IS SOMEONE THERE": 'voice-is-someone-there'
-  },
-
-  _voiceFor(words) {
-    if (typeof words !== 'string') return null;
-    const k = words.toUpperCase().replace(/[^A-Z ]/g, '').replace(/\s+/g, ' ').trim();
-    const key = this._voices[k];
-    const s = this.scene;
-    return key && s && s.cache.audio.exists(key) ? key : null;
-  },
-
-  // Shimmer with a direction: a gentle silver jitter and colour split on the body,
-  // plus a faint ghost sliding one tile toward dir, then everything fades
-  _glitch(body, dir) {
-    const s = this.scene;
-    this._try('glitch', () => {
-      const step = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] }[dir] || [0, 0];
-      const tile = body.displayWidth || 64;
-      const copy = (tint, alpha) => {
-        const c = s.add.image(body.x, body.y, body.texture.key, body.frame && body.frame.name)
-          .setDisplaySize(body.displayWidth, body.displayHeight)
-          .setFlip(body.flipX, body.flipY).setAngle(body.angle)
-          .setTint(tint).setAlpha(alpha).setBlendMode(Phaser.BlendModes.ADD)
-          .setDepth((body.depth || 10) + 1);
-        return c;
-      };
-
-      // colour split: two soft copies that jitter for about 0.8 s
-      const a = copy(0xA8E0D8, 0.45), b = copy(0xEAE4D6, 0.25);
-      let ticks = 0;
-      s.time.addEvent({ delay: 50, repeat: 15, callback: () => {
-        ticks++;
-        const j = 3 * (1 - ticks / 16);
-        a.setPosition(body.x + (Math.random() - 0.5) * 2 * j - 2, body.y + (Math.random() - 0.5) * j);
-        b.setPosition(body.x + (Math.random() - 0.5) * 2 * j + 2, body.y + (Math.random() - 0.5) * j);
-        if (ticks >= 16) {
-          s.tweens.add({ targets: [a, b], alpha: 0, duration: 200,
-                         onComplete: () => { try { a.destroy(); b.destroy(); } catch (e) {} } });
-        }
-      } });
-
-      // ghost sliding one tile toward dir
-      const ghost = copy(0xA8E0D8, 0);
-      s.tweens.chain({ targets: ghost, tweens: [
-        { alpha: 0.4, duration: 150 },
-        { x: body.x + step[0] * tile, y: body.y + step[1] * tile, duration: 450, ease: 'Sine.easeInOut' },
-        { alpha: 0, duration: 300 }
-      ], onComplete: () => { try { ghost.destroy(); } catch (e) {} } });
-
-      // a faint arrow on the tile it points to
-      const g = s.add.graphics().setDepth((body.depth || 10) + 1).setAlpha(0);
-      const ax = body.x + step[0] * tile, ay = body.y + step[1] * tile, r = tile * 0.18;
-      g.fillStyle(0xA8E0D8, 0.8);
-      const ang = Math.atan2(step[1], step[0]);
-      const pt = (d, off) => ({ x: ax + Math.cos(ang + off) * d, y: ay + Math.sin(ang + off) * d });
-      const p1 = pt(r, 0), p2 = pt(r, 2.5), p3 = pt(r, -2.5);
-      g.fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-      s.tweens.add({ targets: g, alpha: 0.7, duration: 300, yoyo: true, hold: 300, delay: 250,
-                     onComplete: () => { try { g.destroy(); } catch (e) {} } });
-    });
-  },
-
-  // v3: at 4 cracks the glass strains — cracks glow brighter, a low hum, the music dips
-  _strain() {
-    const s = this.scene;
-    this._hum();
-    this._dip();
-    this._try('strain', () => {
-      const m = s.mirror;
-      if (!m) return;
-      const glow = s.add.rectangle(m.x, (m.top + m.bottom) / 2, 32, m.bottom - m.top, 0x9FD6E0, 1)
-        .setAlpha(0).setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
-      s.tweens.add({ targets: glow, alpha: 0.25, duration: 500, yoyo: true, hold: 400,
-                     ease: 'Sine.easeInOut', onComplete: () => { try { glow.destroy(); } catch (e) {} } });
-      if (this._crackGfx && this._crackGfx.active) {
-        s.tweens.add({ targets: this._crackGfx, alpha: 0.5, duration: 300, yoyo: true, repeat: 1 });
       }
     });
   },

@@ -409,6 +409,8 @@
           return this.wait(400);
         case "moment":
           fx("onMoment", ev.kind, this.sprite(ev.who || "reflection"));
+          // A warned disobey is coming: draw the eye to the Look key.
+          if (ev.kind === "shimmer" && this.state.look && !this.act3) this.pulseKeys();
           return this.wait(250);
         case "text":
           return this.showText(ev.words, ev.side, ev.mirrored);
@@ -438,24 +440,45 @@
       }
     }
 
+    // Writing fades onto misty glass on that side. Mirrored text is flipped left-to-right.
+    // Two messages on different sides can show at once (Act 3).
     showText(words, side, mirrored) {
-      const cx = side === "left"
-        ? this.leftX + this.leftCols * TILE / 2
-        : this.rightX + this.rightCols * TILE / 2;
-      const t = this.add.text(cx, this.top + TILE * 0.6, words || "", {
-        fontFamily: "Georgia, serif", fontSize: "26px", color: COLORS.silver, align: "center"
-      }).setOrigin(0.5).setAlpha(0).setDepth(15);
+      const left = side === "left";
+      const cx = left ? this.leftX + this.leftCols * TILE / 2 : this.rightX + this.rightCols * TILE / 2;
+      const cy = this.top + TILE * 0.55;
+      this.textSlots = this.textSlots || {};
+      if (this.textSlots[side]) this.textSlots[side].forEach(o => { this.tweens.killTweensOf(o); o.destroy(); });
+
+      const t = this.add.text(cx, cy, words || "", {
+        fontFamily: "Georgia, serif", fontSize: "26px", color: COLORS.silver, align: "center",
+        wordWrap: { width: (left ? this.leftCols : this.rightCols) * TILE - 24 }
+      }).setOrigin(0.5).setAlpha(0).setDepth(16);
       if (mirrored) t.setScale(-1, 1);
+
+      // A soft patch of mist behind the words.
+      const mist = this.add.rectangle(cx, cy, t.width + 36, t.height + 18, 0xEAE4D6, 0.10)
+        .setAlpha(0).setDepth(15);
+
+      this.textSlots[side] = [t, mist];
       fx("onMoment", "text", null);
-      this.tweens.add({ targets: t, alpha: 0.9, duration: 600, hold: 2500, yoyo: true,
-        onComplete: () => t.destroy() });
-      return this.wait(600);
+      this.tweens.add({ targets: [t, mist], alpha: 1, duration: 700, hold: 3000, yoyo: true,
+        onComplete: () => { t.destroy(); mist.destroy(); } });
+      return this.wait(700);
     }
 
+    // Soft text just above the bottom bar, like "Maybe let it."
     showHint(words) {
       this.tweens.killTweensOf(this.hintText);
       this.hintText.setText(words || "").setAlpha(0);
-      this.tweens.add({ targets: this.hintText, alpha: 1, duration: 400, hold: 3000, yoyo: true });
+      this.tweens.add({ targets: this.hintText, alpha: 1, duration: 500, hold: 3500, yoyo: true });
+    }
+
+    // Gently brighten the bottom key hints twice (used when the shimmer warns of a disobey).
+    pulseKeys() {
+      this.tweens.killTweensOf(this.keysText);
+      this.keysText.setColor(COLORS.silver).setAlpha(1);
+      this.tweens.add({ targets: this.keysText, alpha: 0.4, duration: 350, yoyo: true, repeat: 1,
+        onComplete: () => this.keysText.setColor("#B8BCC8").setAlpha(1) });
     }
 
     // Go to the next level with state.carry. When the act changes, its story card comes first.

@@ -1,7 +1,8 @@
 // Rules (Person A). The game's brain: no graphics, just state in, state out.
 // Follows the Shared contracts (Claude Playbook) with Design Update v3 on top.
 // Step A2: mirror rule, walls, goals, LOOK as a still turn, UNDO, RESTART, carry.
-// Still to come: A3 plates/doors/spikes, A4 tile triggers/disobeys/lag/Mercy,
+// Step A3: plates, doors and spikes (v3: no boxes).
+// Still to come: A4 tile triggers/disobeys/lag/Mercy,
 // A7 Act 3 (Follow/Resist/Break), A10 Level 12 endings.
 const Rules = (function () {
 
@@ -9,6 +10,8 @@ const Rules = (function () {
   // The mirror swaps left and right only.
   const MIRROR = { U: "U", D: "D", L: "R", R: "L" };
   const DEFAULT_CARRY = { cracks: 0, mercy: 0, undoLockUsed: false };
+  // Door letter -> the plate that holds it open.
+  const PLATES = { A: "a", B: "b" };
 
   function copy(value) {
     return JSON.parse(JSON.stringify(value));
@@ -45,13 +48,32 @@ const Rules = (function () {
 
   function isSolid(state, tile) {
     if (tile === "#") return true;
-    // Doors block while closed. Nothing opens them until plates arrive in A3.
-    if (tile === "A" || tile === "B") return state.openDoors.indexOf(tile) === -1;
+    // Doors block like walls while closed.
+    if (PLATES[tile]) return state.openDoors.indexOf(tile) === -1;
     return false;
   }
 
   function onTile(rows, body, ch) {
     return tileAt(rows, body.x, body.y) === ch;
+  }
+
+  function onEither(state, ch) {
+    return onTile(state._left, state.person, ch) || onTile(state._right, state.reflection, ch);
+  }
+
+  // Door A is open while anyone stands on plate a, on either side.
+  // A door never closes on someone standing in it. Sends a door event for each change.
+  function updateDoors(state, events) {
+    const open = [];
+    Object.keys(PLATES).forEach(letter => {
+      const wasOpen = state.openDoors.indexOf(letter) !== -1;
+      const held = onEither(state, PLATES[letter]);
+      const someoneInDoorway = onEither(state, letter);
+      const isOpen = held || (wasOpen && someoneInDoorway);
+      if (isOpen) open.push(letter);
+      if (events && isOpen !== wasOpen) events.push({ type: "door", letter: letter, open: isOpen });
+    });
+    state.openDoors = open;
   }
 
   // A deep copy of the state for the history: everything except the history itself.
@@ -109,12 +131,15 @@ const Rules = (function () {
       _left: clearStart(halves.left, "T"),
       _right: clearStart(halves.right, "R")
     };
+    updateDoors(state, null);   // in case someone starts on a plate
     state._start = snapshot(state);
     state._history = [];
     return state;
   }
 
   // One turn in Acts 1-2. dir is "U"/"D"/"L"/"R", or null for LOOK (both stay still).
+  // Turn order: work out both moves, move both at once, plates and doors,
+  // cracks (A4), spikes, goals, then this turn's script events (A4).
   function takeTurn(old, dir) {
     const state = restore(snapshot(old), old._start, old._history.concat([snapshot(old)]));
     const events = [];
@@ -142,8 +167,13 @@ const Rules = (function () {
       });
     }
 
-    // Win: both stand on their goal at the same moment.
-    if (onTile(state._left, state.person, "G") && onTile(state._right, state.reflection, "G")) {
+    updateDoors(state, events);
+
+    if (onEither(state, "^")) {
+      state.status = "failed";
+      events.push({ type: "fail", reason: "spikes" });
+    } else if (onTile(state._left, state.person, "G") && onTile(state._right, state.reflection, "G")) {
+      // Win: both stand on their goal at the same moment.
       state.status = "won";
       events.push({ type: "win" });
     }

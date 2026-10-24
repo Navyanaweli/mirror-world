@@ -139,6 +139,32 @@
       ],
       events: [],
       solution: "LOOK R R"
+    },
+    {
+      number: 904, name: "Test: plate and door", act: 1,
+      // T's plate (left) opens R's door (right). Turn 2: R bumps the still-closed door,
+      // then it opens. Turn 3: R steps into the doorway, so it stays open after T steps off.
+      // Turn 4: R leaves the doorway, the door closes, both on G.
+      map: [
+        "#######|#######",
+        "#T.a.G#|#GA.R.#",
+        "#######|#######"
+      ],
+      events: [],
+      solution: "R R R R"
+    },
+    {
+      number: 905, name: "Test: spikes", act: 1,
+      // Right from the start steps T onto the spikes: fail. The solution goes round below.
+      map: [
+        "######|######",
+        "#T^.G#|#G..R#",
+        "#....#|#....#",
+        "######|######"
+      ],
+      events: [],
+      solution: "D R R U R",
+      failCheck: { inputs: "R", reason: "spikes" }   // test page only: these inputs must fail
     }
   ];
 
@@ -393,6 +419,18 @@
       const r = judge(play(level, undefined, level.solution));
       r.ok ? passed++ : failed++;
       lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + ": " + r.why, cls: r.ok ? "pass" : "fail" });
+
+      if (level.failCheck) {
+        const fr = play(level, undefined, level.failCheck.inputs);
+        const failEvent = fr.steps.length ? fr.steps[fr.steps.length - 1].events.find(e => e.type === "fail") : null;
+        const ok = !fr.error && !fr.mutated && fr.state.status === "failed" && failEvent && failEvent.reason === level.failCheck.reason;
+        ok ? passed++ : failed++;
+        lines.push({
+          text: (ok ? "PASS " : "FAIL ") + label + " [must fail \"" + level.failCheck.inputs + "\"]: " +
+            (fr.error ? "error: " + fr.error : summary(fr.state) + (failEvent ? " · reason " + failEvent.reason : "")),
+          cls: ok ? "pass" : "fail"
+        });
+      }
     });
     lines.push({ text: "" });
     lines.push({ text: passed + " passed, " + failed + " failed", cls: failed ? "fail" : "pass" });

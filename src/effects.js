@@ -390,10 +390,16 @@ const Effects = {
     });
   },
 
-  onMoment(type, body) {
+  onMoment(type, body, dir) {
     const s = this.scene;
     if (!s) return;
     if (type === 'strain') { this._strain(); return; }
+    if (type === 'shimmer' && body && dir) {          // a warned disobey: show which way it will pull
+      this._play('moment', { volume: 0.25 });
+      this._dip();
+      this._glitch(body, dir);
+      return;
+    }
 
     this._play('moment', { volume: 0.25 });
     this._dip();
@@ -445,6 +451,57 @@ const Effects = {
         mist.explode(14);
         this._later(2000, mist);
       }
+    });
+  },
+
+  // Shimmer with a direction: a gentle silver jitter and colour split on the body,
+  // plus a faint ghost sliding one tile toward dir, then everything fades
+  _glitch(body, dir) {
+    const s = this.scene;
+    this._try('glitch', () => {
+      const step = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] }[dir] || [0, 0];
+      const tile = body.displayWidth || 64;
+      const copy = (tint, alpha) => {
+        const c = s.add.image(body.x, body.y, body.texture.key, body.frame && body.frame.name)
+          .setDisplaySize(body.displayWidth, body.displayHeight)
+          .setFlip(body.flipX, body.flipY).setAngle(body.angle)
+          .setTint(tint).setAlpha(alpha).setBlendMode(Phaser.BlendModes.ADD)
+          .setDepth((body.depth || 10) + 1);
+        return c;
+      };
+
+      // colour split: two soft copies that jitter for about 0.8 s
+      const a = copy(0xA8E0D8, 0.45), b = copy(0xEAE4D6, 0.25);
+      let ticks = 0;
+      s.time.addEvent({ delay: 50, repeat: 15, callback: () => {
+        ticks++;
+        const j = 3 * (1 - ticks / 16);
+        a.setPosition(body.x + (Math.random() - 0.5) * 2 * j - 2, body.y + (Math.random() - 0.5) * j);
+        b.setPosition(body.x + (Math.random() - 0.5) * 2 * j + 2, body.y + (Math.random() - 0.5) * j);
+        if (ticks >= 16) {
+          s.tweens.add({ targets: [a, b], alpha: 0, duration: 200,
+                         onComplete: () => { try { a.destroy(); b.destroy(); } catch (e) {} } });
+        }
+      } });
+
+      // ghost sliding one tile toward dir
+      const ghost = copy(0xA8E0D8, 0);
+      s.tweens.chain({ targets: ghost, tweens: [
+        { alpha: 0.4, duration: 150 },
+        { x: body.x + step[0] * tile, y: body.y + step[1] * tile, duration: 450, ease: 'Sine.easeInOut' },
+        { alpha: 0, duration: 300 }
+      ], onComplete: () => { try { ghost.destroy(); } catch (e) {} } });
+
+      // a faint arrow on the tile it points to
+      const g = s.add.graphics().setDepth((body.depth || 10) + 1).setAlpha(0);
+      const ax = body.x + step[0] * tile, ay = body.y + step[1] * tile, r = tile * 0.18;
+      g.fillStyle(0xA8E0D8, 0.8);
+      const ang = Math.atan2(step[1], step[0]);
+      const pt = (d, off) => ({ x: ax + Math.cos(ang + off) * d, y: ay + Math.sin(ang + off) * d });
+      const p1 = pt(r, 0), p2 = pt(r, 2.5), p3 = pt(r, -2.5);
+      g.fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+      s.tweens.add({ targets: g, alpha: 0.7, duration: 300, yoyo: true, hold: 300, delay: 250,
+                     onComplete: () => { try { g.destroy(); } catch (e) {} } });
     });
   },
 

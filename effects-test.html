@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -322,6 +323,14 @@ $('btnWin').onclick = () => call('onWin');
     if (kind === 'text') s.showSampleText();
     call('onMoment', kind, body);
   };
+  $('momentButtons').appendChild(b);
+});
+
+// Glitch shimmer: warns which way the reflection will pull next turn
+['U', 'D', 'L', 'R'].forEach(dir => {
+  const b = document.createElement('button');
+  b.textContent = 'Shimmer ' + dir;
+  b.onclick = () => { const s = scene(); if (s) call('onMoment', 'shimmer', s.other, dir); };
   $('momentButtons').appendChild(b);
 });
 </script>

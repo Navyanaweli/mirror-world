@@ -2,6 +2,7 @@
 // Teaches: spikes. A safe step for Theo can be a deadly one for the reflection.
 LEVELS.push({
   number: 3, name: "Bedroom", act: 1,
+  instructions: "A safe step for you can be deadly for the other. Watch both rooms.",
   map: [
     "#######|#######",
     "#...H.#|#....##",

@@ -61,7 +61,7 @@
       <div class="hint">Arrows/WASD move · Space = LOOK (Acts 1–2) / FOLLOW (Act 3) · Shift = RESIST · Z = UNDO · R = RESTART · Enter = reload level (page only)</div>
       <h2>Board</h2>
       <pre id="board"></pre>
-      <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame · o Sam's next steps (* = frame turn)</div>
+      <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame · ! glitch tile · o Sam's next steps (* = frame turn)</div>
       <h2>State</h2>
       <pre id="info"></pre>
       <h2>Last events</h2>
@@ -106,29 +106,36 @@
   const TEST_LEVELS = [
     {
       number: 901, name: "Test: mirror and walls", act: 1,
-      // Up moves both up. Left: T hits the wall, R moves right.
+      // Full-opposite mirror: Up moves T up and R down. Left: T hits the wall, R moves right.
       // Right x4: R reaches G after 2, then the wall holds it while T catches up.
       map: [
         "#######|#######",
-        "#.....#|#.....#",
-        "#T...G#|##G.R.#",
+        "#.....#|##G.R.#",
+        "#T...G#|#.....#",
         "#######|#######"
       ],
       events: [],
-      solution: "R R R R"
+      solution: "R R R R",
+      checks: [
+        { about: "Up moves T up and R down", inputs: "U", want: { person: { x: 1, y: 1 }, reflection: { x: 4, y: 2 } } },
+        { about: "Left: T blocked by the wall, R moves right", inputs: "L", want: { person: { x: 1, y: 2 }, reflection: { x: 5, y: 1 } } }
+      ]
     },
     {
       number: 902, name: "Test: up and down", act: 1,
-      // Up and down are not swapped. The top wall stops R while T steps onto G.
+      // Up and down are swapped too. The bottom wall stops R while T walks onto G.
       map: [
         "#####|#####",
-        "#.G.#|#.G.#",
-        "#...#|#..R#",
-        "#T..#|#...#",
+        "#..G#|#R..#",
+        "#...#|#...#",
+        "#T..#|#G..#",
         "#####|#####"
       ],
       events: [],
-      solution: "U R U"
+      solution: "U U R R",
+      checks: [
+        { about: "Up sends R down", inputs: "U", want: { person: { x: 1, y: 2 }, reflection: { x: 1, y: 2 } } }
+      ]
     },
     {
       number: 903, name: "Test: look is a still turn", act: 2, look: true,
@@ -162,8 +169,8 @@
       // Right from the start steps T onto the spikes: fail. The solution goes round below.
       map: [
         "######|######",
-        "#T^.G#|#G..R#",
-        "#....#|#....#",
+        "#T^.G#|#....#",
+        "#....#|#G..R#",
         "######|######"
       ],
       events: [],
@@ -175,19 +182,21 @@
     },
     {
       number: 906, name: "Test: stoppable disobey", act: 2, look: true,
-      // Stepping R onto (4,1) warns (shimmer). Next move it goes Down instead, unless you Look.
+      // Stepping R onto the glitch tile (4,2) warns (shimmer). Next move it goes Up instead, unless you Look.
       map: [
         "#######|#######",
-        "#T...G#|#G...R#",
-        "#.....#|#.....#",
+        "#T...G#|#.....#",
+        "#.....#|#G...R#",
         "#######|#######"
       ],
       events: [
-        { at: { who: "reflection", x: 4, y: 1 }, do: "disobey", dir: "D", kind: "stoppable", warn: true }
+        { at: { who: "reflection", x: 4, y: 2 }, do: "disobey", dir: "U", kind: "stoppable", warn: true }
       ],
       solution: "R LOOK R R R",
       checks: [
         { about: "Look cancels it: no crack, no Mercy", inputs: "R LOOK R R R", want: { status: "won", cracks: 0, mercy: 0, events: { "moment:shimmer": 1 } } },
+        { about: "the glitch tile shows until it fires", inputs: "", want: { glitches: [{ who: "reflection", x: 4, y: 2, dir: "U", kind: "stoppable" }] } },
+        { about: "the shimmer says which way it will pull", inputs: "R", want: { glitches: [], events: { "moment:shimmer": 1 } }, shimmerDir: "U" },
         { about: "letting it happen: 1 crack, 1 Mercy", inputs: "R R U R R R", want: { status: "won", cracks: 1, mercy: 1, events: { "crack:1": 1 } } },
         { about: "undo rolls back the crack and Mercy", inputs: "R R UNDO", want: { cracks: 0, mercy: 0, turn: 1 } },
         { about: "undo un-fires the trigger, so it fires again", inputs: "R UNDO R", want: { events: { "moment:shimmer": 2 } } },
@@ -200,12 +209,12 @@
       // No warning. Looking at it cancels it; after the next RESTART comes the hint.
       map: [
         "#######|#######",
-        "#T...G#|#G...R#",
-        "#.....#|#.....#",
+        "#T...G#|#.....#",
+        "#.....#|#G...R#",
         "#######|#######"
       ],
       events: [
-        { at: { who: "reflection", x: 4, y: 1 }, do: "disobey", dir: "D", kind: "required", warn: false }
+        { at: { who: "reflection", x: 4, y: 2 }, do: "disobey", dir: "U", kind: "required", warn: false }
       ],
       solution: "R R U R R R",
       checks: [
@@ -362,6 +371,11 @@
     (s.boxes || []).forEach(b => {
       const side = b.side === "left" ? 0 : 1;
       if (rows[b.y] && rows[b.y][side][b.x] !== undefined) rows[b.y][side][b.x] = "x";
+    });
+    // Glitch tiles still waiting to fire: !
+    (s.glitches || []).forEach(g => {
+      const side = g.who === "person" ? 0 : 1;
+      if (rows[g.y] && rows[g.y][side][g.x] !== undefined) rows[g.y][side][g.x] = "!";
     });
     // Sam's next footprints: o, or * for the glowing frame-turn step.
     (s.footprints || []).forEach(f => {
@@ -559,8 +573,13 @@
     const actual = {
       status: s.status, turn: s.turn, cracks: s.cracks, mercy: s.carry ? s.carry.mercy : undefined,
       slipTurns: s.slipTurns, person: s.person, reflection: s.reflection, openDoors: s.openDoors, ending: s.ending,
-      will: s.will, samLooking: s.samLooking, footprints: s.footprints
+      will: s.will, samLooking: s.samLooking, footprints: s.footprints, glitches: s.glitches
     };
+    if (check.shimmerDir) {
+      const all = (run.startEvents || []).concat(...run.steps.map(st => st.events));
+      const sh = all.find(e => e.type === "moment" && e.kind === "shimmer");
+      if (!sh || sh.dir !== check.shimmerDir) problems.push("shimmer dir is " + (sh ? sh.dir : "missing") + ", wanted " + check.shimmerDir);
+    }
     Object.keys(want).forEach(k => {
       if (k === "events") return;
       if (JSON.stringify(actual[k]) !== JSON.stringify(want[k])) {

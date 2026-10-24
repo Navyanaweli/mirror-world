@@ -1,12 +1,14 @@
 // All story text (design v4). Mysterious and bittersweet, never scary.
 // Use \n for new lines. Every field from the contract (plus "together").
-// {theo} and {mara} are filled in by game.js with the names for this playthrough.
+// {theo}, {mara} and {sam} are filled in by game.js with the names for this playthrough.
+//   theo: you        mara: your mirror person        sam: who moves in years later (Act 3)
 
-// The first game is Leon and Noel. After Take Their Place the cycle repeats, and the
-// new game ("New Game — Sam" on the title) is Ivan and Navi.
+// The first game is Leon and Noel, and Ivan moves in years later. After any ending the
+// cycle repeats: the new game ("New Game — Ivan" on the title) is Ivan and Navi,
+// and years later Leon moves in. Each pair is the other's name spelled backwards.
 const NAMES = [
-  { theo: "Leon", mara: "Noel" },
-  { theo: "Ivan", mara: "Navi" }
+  { theo: "Leon", mara: "Noel", sam: "Ivan" },
+  { theo: "Ivan", mara: "Navi", sam: "Leon" }
 ];
 
 const STORY = {
@@ -43,13 +45,13 @@ const STORY = {
   endingTake:
     "TAKE THEIR PLACE\n\n" +
     "The glass gives way, and {theo} steps out into the morning.\n" +
-    "Behind him, Sam's reflection stops moving on its own.\n" +
+    "Behind him, {sam}'s reflection stops moving on its own.\n" +
     "The mirror waits for the next one.",
 
   endingStay:
     "STAY BEHIND\n\n" +
     "{theo} lets the night pass.\n" +
-    "Sam sleeps safely, and never knows.\n" +
+    "{sam} sleeps safely, and never knows.\n" +
     "In the glass, someone keeps watch.",
 
   endingBreak:

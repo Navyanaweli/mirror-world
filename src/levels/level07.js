@@ -2,7 +2,7 @@
 // Act 3. Theo starts behind the glass; Sam does the opposite of Theo now. Theo opens the door for Sam.
 LEVELS.push({
   number: 7, name: "Cellar, years later", act: 3,
-  instructions: "Now you're behind the glass, and Sam copies you the opposite way.",
+  instructions: "Now you're behind the glass, and {sam} copies you the opposite way.",
   map: [
     "#######|#######",
     "#D.^..#|#H..a.#",

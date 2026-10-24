@@ -192,20 +192,24 @@
   }
 
   // Which playthrough this is: 0 is the first game (Leon and Noel), 1 is the new game after
-  // Take Their Place (Ivan and Navi). The names come from NAMES in story.js.
+  // any ending (Ivan and Navi). The names come from NAMES in story.js.
   let cycle = 0;
-  function names() {
-    const list = (typeof NAMES !== "undefined" && NAMES.length) ? NAMES : [{ theo: "Leon", mara: "Noel" }];
-    return list[Math.min(cycle, list.length - 1)];
+  function names(c) {
+    const list = (typeof NAMES !== "undefined" && NAMES.length) ? NAMES : [{ theo: "Leon", mara: "Noel", sam: "Ivan" }];
+    return list[Math.min(c === undefined ? cycle : c, list.length - 1)];
   }
 
-  // Story text by field name, with {theo} and {mara} filled in, and a quiet fallback
+  // Fills {theo}, {mara} and {sam} with this playthrough's names.
+  function withNames(s) {
+    const n = names();
+    return s.replace(/\{theo\}/g, n.theo).replace(/\{mara\}/g, n.mara).replace(/\{sam\}/g, n.sam);
+  }
+
+  // Story text by field name, with the names filled in, and a quiet fallback
   // if story.js is missing a field.
   function storyText(key) {
     const s = (typeof STORY !== "undefined") ? STORY[key] : null;
-    if (typeof s !== "string" || !s.length) return "";
-    const n = names();
-    return s.replace(/\{theo\}/g, n.theo).replace(/\{mara\}/g, n.mara);
+    return (typeof s === "string" && s.length) ? withNames(s) : "";
   }
 
   // Start the first level, with the intro and the first act's card in front of it.
@@ -227,8 +231,8 @@
     create(data) {
       this.cameras.main.setBackgroundColor(COLORS.bg);
       this.hasArt = this.textures.exists("title");
-      // After Take Their Place the cycle repeats: Sam is the one behind the glass now.
-      this.afterTake = !!(data && data.after === "take");
+      // After any ending the cycle repeats, and the title offers the new game with the new names.
+      this.afterEnding = !!(data && data.after);
       this.leaving = false;
       this.panel = null;        // null, "settings", "controls" or "credits"
       this.panelObjects = [];
@@ -318,7 +322,7 @@
     // ---- the menu
     items() {
       return [
-        { label: this.afterTake ? "New Game — Sam" : "Start", act: () => this.start() },
+        { label: this.afterEnding ? "New Game — " + names(1).theo : "Start", act: () => this.start() },
         { label: "Settings", act: () => this.openPanel("settings") },
         { label: "Controls", act: () => this.openPanel("controls") },
         { label: "Credits", act: () => this.openPanel("credits") }
@@ -357,8 +361,8 @@
       this.leaving = true;
       this.stopTitleMusic();
       this.cameras.main.fadeOut(500, 20, 21, 38);
-      // "New Game — Sam" (after Take Their Place) starts the next cycle, with the new names.
-      this.cameras.main.once("camerafadeoutcomplete", () => startGame(this, this.afterTake ? 1 : 0));
+      // "New Game — Ivan" (after any ending) starts the next cycle, with the new names.
+      this.cameras.main.once("camerafadeoutcomplete", () => startGame(this, this.afterEnding ? 1 : 0));
     }
 
     // ---- panels: Settings, Controls, Credits (Esc or Back to close)
@@ -605,8 +609,8 @@
       const GAP = 6, HINT_H = 20, boardH = this.rows * TILE;
       let reserve = 0;
       this.instrText = null;
-      const words = this.level.instructions;
-      if (typeof words === "string" && words.length) {
+      const words = typeof this.level.instructions === "string" ? withNames(this.level.instructions) : "";
+      if (words.length) {
         for (const size of [15, 14, 13, 12]) {
           if (this.instrText) this.instrText.destroy();
           this.instrText = this.add.text(W / 2, H - BAR - GAP, words, {
@@ -784,7 +788,7 @@
           adjust: d => this.setVolume(SETTINGS.volume + d * 0.1),
           act: () => this.setVolume(SETTINGS.volume >= 0.99 ? 0 : SETTINGS.volume + 0.1) },
         { label: "Sound   " + (SETTINGS.mute ? "Off" : "On"), act: () => { toggleMute(this); this.drawMenu(); } },
-        { label: "Quit to title", act: () => { this.closeMenu(); this.locked = true; this.scene.start("Title"); } }
+        { label: "Quit to title", act: () => { this.closeMenu(); this.locked = true; this.scene.start("Title", {}); } }   // {} so the title forgets the last ending
       ];
     }
 
@@ -1073,7 +1077,7 @@
     }
 
     // An ending's screen, then the credits, then the title.
-    // After Take Their Place the title says "New Game — Sam".
+    // After any ending the title offers the new game: "New Game — Ivan".
     showEnding(which) {
       this.locked = true;
       const card = { take: "endingTake", break: "endingBreak", stay: "endingStay" }[which];
@@ -1111,7 +1115,7 @@
       this.add.text(W / 2, H / 2 - 20, msg, { fontFamily: STORY_FONT, fontSize: "28px", color: COLORS.light }).setOrigin(0.5);
       this.add.text(W / 2, H / 2 + 28, "Press Enter for the title", { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.dim }).setOrigin(0.5);
       let gone = false;
-      onKey(this, e => { if (e.code === "Enter" && !gone) { gone = true; this.scene.start("Title"); } });
+      onKey(this, e => { if (e.code === "Enter" && !gone) { gone = true; this.scene.start("Title", {}); } });
     }
   }
 

@@ -2,6 +2,7 @@
 // Final room. Crack = Take Their Place, goals = Stay Behind, both on frames = Break It Together.
 LEVELS.push({
   number: 8, name: "Attic, years later", act: 3, final: true,
+  instructions: "The crack is the quick way out. There are other ways.",
   map: [
     "#######|#######",
     "##.#..#|#..#%^#",

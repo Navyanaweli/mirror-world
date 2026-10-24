@@ -2,6 +2,7 @@
 // Teaches: the reflection moves the opposite way; use a wall to stop one body.
 LEVELS.push({
   number: 1, name: "Hallway", act: 1,
+  instructions: "The other body moves the opposite way. Use a wall to stop one of you while the other keeps going.",
   map: [
     "#######|#######",
     "#..T.H#|#.#...#",

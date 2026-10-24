@@ -144,6 +144,7 @@
       IMAGES.forEach(k => this.load.image(k, "assets/images/" + k + ".png"));
       SOUNDS.forEach(([k, ext]) => this.load.audio(k, "assets/sounds/" + k + "." + ext));
       this.load.image("title", "assets/images/title.png"); // optional, 960x540
+      this.load.image("title-glow", "assets/images/title-glow.png"); // optional, 960x540 transparent glow layer
       this.load.image("story-bg", "assets/images/story-bg.png"); // optional 960x540 swirl behind story cards
       ROOM_NAMES.forEach(r => {   // optional; plain floor/wall is used if missing
         this.load.image("floor-" + r, "assets/images/floor-" + r + ".png");
@@ -206,10 +207,18 @@
     drawBackdrop() {
       if (this.hasArt) {
         const art = this.add.image(W / 2, H / 2, "title").setDisplaySize(W, H);
-        // A slow breath of light over the art, so the screen is never quite still.
-        const breath = this.add.ellipse(W / 2, H * 0.42, 520, 360, COLORS.cool, 0.05);
-        this.tweens.add({ targets: breath, alpha: { from: 0.4, to: 1 }, scaleX: 1.06, scaleY: 1.06,
-          duration: 3600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        if (this.textures.exists("title-glow")) {
+          // C's glow layer on top of the art, pulsing gently (fades in after the art).
+          const glow = this.add.image(W / 2, H / 2, "title-glow").setDisplaySize(W, H).setAlpha(0);
+          this.tweens.add({ targets: glow, alpha: 0.35, duration: 1200, onComplete: () =>
+            this.tweens.add({ targets: glow, alpha: { from: 0.35, to: 1 }, duration: 2500,
+              yoyo: true, repeat: -1, ease: "Sine.easeInOut" }) });
+        } else {
+          // No glow layer: a slow breath of light over the art, so the screen is never quite still.
+          const breath = this.add.ellipse(W / 2, H * 0.42, 520, 360, COLORS.cool, 0.05);
+          this.tweens.add({ targets: breath, alpha: { from: 0.4, to: 1 }, scaleX: 1.06, scaleY: 1.06,
+            duration: 3600, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        }
         // A soft dark band so the menu is always readable on top of the picture.
         this.add.rectangle(W / 2, 420, W, 190, COLORS.bg, 0.45);
         art.setAlpha(0);

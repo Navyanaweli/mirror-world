@@ -20,5 +20,6 @@ LEVELS.push({
     // Mara's first message, the moment the puzzle is cracked (reflection on the plate).
     { at: { who: "reflection", x: 3, y: 4 }, do: "text", words: "I'M SORRY", side: "right", mirrored: true }
   ],
-  solution: "R R U D D"
+  solution: "R R U D D",
+  instructions: "The plate in the mirror opens your door. Walk Right until you are above the door. Press Up: you bump the wall while the reflection steps Down onto the plate, and the door opens. Then go Down twice. A door can't close on someone standing in it."
 });

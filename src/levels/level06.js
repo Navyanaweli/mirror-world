@@ -20,5 +20,6 @@ LEVELS.push({
     { at: "start", do: "hint", words: "When the glass shimmers, hold its gaze. (Space)" },
     { at: { who: "reflection", x: 2, y: 3 }, do: "disobey", dir: "D", kind: "stoppable", warn: true }
   ],
-  solution: "R R LOOK R D D"
+  solution: "R R LOOK R D D",
+  instructions: "Look unlocked. When the glass shimmers, the arrow shows where the reflection will glitch on your next move. Press Space to stare and stop it (no crack), or let it happen (1 crack, still solvable). Walk Right until you're above the gap, then go Down twice."
 });

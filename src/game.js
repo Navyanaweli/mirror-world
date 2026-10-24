@@ -296,7 +296,31 @@
       this.leftX = Math.round((W - total) / 2);
       this.mirrorX = this.leftX + this.leftCols * TILE + STRIP / 2;
       this.rightX = this.leftX + this.leftCols * TILE + STRIP;
-      this.top = Math.round(BAR + (H - 2 * BAR - this.rows * TILE) / 2);
+
+      // Team change: level.instructions shows as small wrapped text just above the key bar,
+      // for the whole level. Room is kept for it (and for hints) so it never covers the board;
+      // if a tall room needs it, the text steps down a size or two.
+      const GAP = 6, HINT_H = 20, boardH = this.rows * TILE;
+      let reserve = 0;
+      this.instrText = null;
+      const words = this.level.instructions;
+      if (typeof words === "string" && words.length) {
+        for (const size of [15, 14, 13, 12]) {
+          if (this.instrText) this.instrText.destroy();
+          this.instrText = this.add.text(W / 2, H - BAR - GAP, words, {
+            fontFamily: UI_FONT, fontSize: size + "px", color: COLORS.light,
+            align: "center", lineSpacing: 2, wordWrap: { width: 900, useAdvancedWrap: true }
+          }).setOrigin(0.5, 1).setAlpha(0.7).setDepth(21);
+          reserve = this.instrText.height + GAP * 2 + HINT_H;
+          if (boardH <= H - 2 * BAR - reserve - 4) break;
+        }
+      }
+      const free = H - 2 * BAR - reserve - boardH;
+      this.top = Math.round(BAR + Math.max(4, free / 2));
+      // Hints sit just above the instructions (or just above the bar if there are none).
+      this.hintY = this.instrText
+        ? H - BAR - GAP - this.instrText.height - 4 - HINT_H / 2
+        : H - BAR - 14;
     }
 
     tilePos(side, x, y) {
@@ -391,7 +415,7 @@
         .setOrigin(0, 0.5).setDepth(21);
       this.keysText = this.add.text(W / 2, H - BAR / 2, "", { ...style, color: COLORS.dim })
         .setOrigin(0.5).setDepth(21);
-      this.hintText = this.add.text(W / 2, H - BAR - 14, "", { ...style, color: COLORS.light, fontSize: "15px", fontStyle: "italic" })
+      this.hintText = this.add.text(W / 2, this.hintY, "", { ...style, color: COLORS.light, fontSize: "15px", fontStyle: "italic" })
         .setOrigin(0.5).setAlpha(0).setDepth(21);
       this.updateBars();
     }

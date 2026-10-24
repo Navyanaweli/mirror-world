@@ -100,6 +100,7 @@
       SOUNDS.forEach(([k, ext]) => this.load.audio(k, "assets/sounds/" + k + "." + ext));
       this.load.image("title", "assets/images/title.png"); // optional, 960x540
       this.load.image("glitch", "assets/images/glitch.png"); // optional; drawn in code if missing
+      this.load.image("story-bg", "assets/images/story-bg.png"); // optional 960x540 swirl behind story cards
     }
 
     create() {
@@ -170,12 +171,29 @@
   class StoryScene extends Phaser.Scene {
     constructor() { super("Story"); }
 
+    updateBg() {
+      if (this.bg) this.bg.setAngle((this.game.loop.time / 120000 * 360) % 360);
+    }
+
+    update() { this.updateBg(); }
+
     create(data) {
       const cards = (data.cards || []).filter(k => storyText(k));
       const next = data.next || { scene: "Title", data: {} };
       if (cards.length === 0) { this.scene.start(next.scene, next.data); return; }
 
       this.cameras.main.setBackgroundColor(COLORS.bg);
+
+      // C's swirl behind the story text, turning very slowly (one turn every 120 s).
+      // Scaled so its short side covers the screen's diagonal: no corners at any angle.
+      // The angle comes from the game clock, so it carries on smoothly from card to card.
+      this.bg = null;
+      if (this.textures.exists("story-bg")) {
+        const cover = Math.hypot(W, H) / Math.min(W, H);
+        this.bg = this.add.image(W / 2, H / 2, "story-bg").setDisplaySize(W * cover, H * cover);
+        this.updateBg();
+      }
+
       const t = this.add.text(W / 2, H / 2 - 10, storyText(cards[0]), {
         fontFamily: STORY_FONT, fontSize: "26px", color: COLORS.light,
         align: "center", lineSpacing: 12, wordWrap: { width: 760 }

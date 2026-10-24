@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mirror World — Rules Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      background: #11141C;
+      color: #EAE4D6;
+      font-family: system-ui, sans-serif;
+      font-size: 14px;
+    }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    h2 { font-size: 15px; margin: 16px 0 6px; color: #9FD6E0; }
+    .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+    .col { flex: 1 1 380px; min-width: 0; }
+    .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+    select, button, textarea {
+      font: inherit;
+      background: #232A3A;
+      color: #EAE4D6;
+      border: 1px solid #4A5570;
+      border-radius: 4px;
+      padding: 4px 8px;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: #9FD6E0; }
+    textarea { width: 100%; box-sizing: border-box; font-family: monospace; }
+    pre {
+      font-family: Consolas, "Courier New", monospace;
+      background: #232A3A;
+      border: 1px solid #4A5570;
+      border-radius: 4px;
+      padding: 10px;
+      margin: 0;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    #board { font-size: 26px; line-height: 1.15; display: inline-block; }
+    #info, #events, #log, #out { font-size: 13px; white-space: pre-wrap; }
+    #log, #out { max-height: 420px; overflow-y: auto; }
+    .hint { color: #9aa3b8; font-size: 12px; }
+    .pass { color: #8fd69a; }
+    .fail { color: #ff8a80; }
+    .warn { color: #E9B872; }
+  </style>
+</head>
+<body>
+  <h1>Mirror World — Rules Test</h1>
+
+  <div class="cols">
+    <div class="col">
+      <div class="bar">
+        <select id="levelPick"></select>
+        <button id="loadBtn">Load level</button>
+        <button id="nextBtn">Next level (keeps carry)</button>
+      </div>
+      <div class="hint">Arrows/WASD move · Space = LOOK (Acts 1–2) / FOLLOW (Act 3) · Shift = RESIST · Z = UNDO · R = RESTART · Enter = reload level (page only)</div>
+      <h2>Board</h2>
+      <pre id="board"></pre>
+      <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame</div>
+      <h2>State</h2>
+      <pre id="info"></pre>
+      <h2>Last events</h2>
+      <pre id="events"></pre>
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </div>
+
+    <div class="col">
+      <h2>Replay</h2>
+      <textarea id="replayInput" rows="3" placeholder="R R LOOK L"></textarea>
+      <div class="bar">
+        <button id="replayBtn">Replay</button>
+        <button id="solutionBtn">Paste this level's solution</button>
+      </div>
+      <div class="bar">
+        <button id="checkAllBtn">Check all levels</button>
+        <button id="checkChainBtn">Check Act 2 chain</button>
+      </div>
+      <pre id="out">Results show here.</pre>
+    </div>
+  </div>
+
+  <script src="src/levels.js"></script>
+  <script src="src/levels/level01.js"></script>
+  <script src="src/levels/level02.js"></script>
+  <script src="src/levels/level03.js"></script>
+  <script src="src/levels/level04.js"></script>
+  <script src="src/levels/level05.js"></script>
+  <script src="src/levels/level06.js"></script>
+  <script src="src/levels/level07.js"></script>
+  <script src="src/levels/level08.js"></script>
+  <script src="src/levels/level09.js"></script>
+  <script src="src/levels/level10.js"></script>
+  <script src="src/levels/level11.js"></script>
+  <script src="src/levels/level12.js"></script>
+  <script src="src/rules.js"></script>
+
+  <script>
+  // Tiny rooms, one per mechanic, so rules can be tested before real levels exist.
+  // Each has a solution so "Check all levels" covers it too.
+  const TEST_LEVELS = [
+    {
+      number: 901, name: "Test: mirror and walls", act: 1,
+      // Up moves both up. Left: T hits the wall, R moves right.
+      // Right x4: R reaches G after 2, then the wall holds it while T catches up.
+      map: [
+        "#######|#######",
+        "#.....#|#.....#",
+        "#T...G#|##G.R.#",
+        "#######|#######"
+      ],
+      events: [],
+      solution: "R R R R"
+    },
+    {
+      number: 902, name: "Test: up and down", act: 1,
+      // Up and down are not swapped. The top wall stops R while T steps onto G.
+      map: [
+        "#####|#####",
+        "#.G.#|#.G.#",
+        "#...#|#..R#",
+        "#T..#|#...#",
+        "#####|#####"
+      ],
+      events: [],
+      solution: "U R U"
+    },
+    {
+      number: 903, name: "Test: look is a still turn", act: 2, look: true,
+      map: [
+        "#####|#####",
+        "#T.G#|#G.R#",
+        "#####|#####"
+      ],
+      events: [],
+      solution: "LOOK R R"
+    }
+  ];
+
+  const VALID_INPUTS = ["U", "D", "L", "R", "LOOK", "FOLLOW", "RESIST", "UNDO", "RESTART"];
+  const $ = id => document.getElementById(id);
+
+  // Real levels sorted by number, then the test rooms.
+  const realLevels = (typeof LEVELS !== "undefined" ? LEVELS : []).slice().sort((a, b) => a.number - b.number);
+  const allLevels = realLevels.concat(TEST_LEVELS);
+
+  let levelIndex = 0;
+  let loadCarry = undefined;   // the carry this level was loaded with (for Replay)
+  let state = null;
+  let logLines = [];
+
+  function levelLabel(level) {
+    return level.number > 900 ? level.name : "Level " + level.number + " — " + (level.name || "?");
+  }
+
+  function fmtPos(p) { return p ? "(" + p.x + "," + p.y + ")" : "-"; }
+
+  function fmtEvent(e) {
+    const extra = Object.keys(e).filter(k => k !== "type").map(k => {
+      const v = e[k];
+      if (v && typeof v === "object" && "x" in v && "y" in v) return k + " " + fmtPos(v);
+      return k + " " + JSON.stringify(v);
+    });
+    return e.type + (extra.length ? "  " + extra.join(", ") : "");
+  }
+
+  function fmtEvents(events) {
+    return events && events.length ? events.map(fmtEvent).join("\n") : "(none)";
+  }
+
+  // Draw both halves as text, side by side.
+  function drawBoard(s) {
+    const rows = s.map.map(row => {
+      const parts = row.split("|");
+      return [(parts[0] || "").split(""), (parts[1] || "").split("")];
+    });
+    rows.forEach(r => {
+      r[0] = r[0].map(ch => ch === "T" ? "." : ch);
+      r[1] = r[1].map(ch => ch === "R" ? "." : ch);
+      [0, 1].forEach(side => {
+        r[side] = r[side].map(ch => (ch === "A" || ch === "B") && s.openDoors.indexOf(ch) !== -1 ? "/" : ch);
+      });
+    });
+    (s.boxes || []).forEach(b => {
+      const side = b.side === "left" ? 0 : 1;
+      if (rows[b.y] && rows[b.y][side][b.x] !== undefined) rows[b.y][side][b.x] = "x";
+    });
+    if (rows[s.person.y]) rows[s.person.y][0][s.person.x] = "T";
+    if (rows[s.reflection.y]) rows[s.reflection.y][1][s.reflection.x] = "R";
+    return rows.map(r => r[0].join("") + "|" + r[1].join("")).join("\n");
+  }
+
+  function drawInfo(s) {
+    const mercy = s.carry && s.carry.mercy !== undefined ? s.carry.mercy : "?";
+    return [
+      "act " + s.act + "   turn " + s.turn + "   status " + s.status,
+      "cracks " + s.cracks + "   will " + (s.will === null ? "—" : s.will) + "   mercy " + mercy,
+      "look " + s.look + "   ending " + s.ending + "   slipTurns " + s.slipTurns,
+      "samLooking " + s.samLooking + "   footprints " + JSON.stringify(s.footprints),
+      "person " + fmtPos(s.person) + "   reflection " + fmtPos(s.reflection) + "   openDoors " + JSON.stringify(s.openDoors),
+      "carry " + JSON.stringify(s.carry)
+    ].join("\n");
+  }
+
+  // The parts of the state that show whether an input did anything.
+  function snapshotForLog(s) {
+    const copy = {};
+    Object.keys(s).forEach(k => { if (k[0] !== "_" && k !== "startEvents") copy[k] = s[k]; });
+    copy.historyLength = s._history ? s._history.length : 0;
+    return copy;
+  }
+
+  function statusNote(s) {
+    if (s.status === "won") return "\n\nWON. The rules now ignore every input, even Z and R (design v3).\nPress Enter (or Load level) to play this level again.";
+    if (s.status === "failed") return "\n\nFAILED. Only R (RESTART) works now.";
+    return "";
+  }
+
+  function render(lastEvents) {
+    if (!state) return;
+    $("board").textContent = drawBoard(state);
+    $("info").textContent = drawInfo(state) + statusNote(state);
+    if (lastEvents !== undefined) $("events").textContent = fmtEvents(lastEvents);
+    $("log").textContent = logLines.slice(-40).join("\n");
+    $("log").scrollTop = $("log").scrollHeight;
+  }
+
+  function showError(where, err) {
+    console.error(err);
+    logLines.push("ERROR in " + where + ": " + (err && err.message ? err.message : err));
+    $("events").innerHTML = '<span class="fail"></span>';
+    $("events").firstChild.textContent = "ERROR in " + where + ": " + (err && err.message ? err.message : err);
+    $("log").textContent = logLines.slice(-40).join("\n");
+  }
+
+  function loadLevel(index, carry) {
+    levelIndex = index;
+    $("levelPick").value = String(index);
+    loadCarry = carry ? JSON.parse(JSON.stringify(carry)) : undefined;
+    try {
+      state = Rules.load(allLevels[index], carry);
+    } catch (err) {
+      state = null;
+      showError("Rules.load", err);
+      return;
+    }
+    logLines = ["Loaded " + levelLabel(allLevels[index]) + (carry ? "  carry " + JSON.stringify(carry) : "")];
+    const start = state.startEvents || [];
+    if (start.length) logLines.push("startEvents: " + start.map(fmtEvent).join(" | "));
+    render(start);
+  }
+
+  function send(input) {
+    if (!state) return;
+    try {
+      const before = JSON.stringify(snapshotForLog(state));
+      const result = Rules.step(state, input);
+      state = result.state;
+      const ignored = !result.events.length && JSON.stringify(snapshotForLog(state)) === before;
+      logLines.push(input.padEnd(7) + " turn " + state.turn + "  " + state.status + "  T" + fmtPos(state.person) +
+        " R" + fmtPos(state.reflection) + "   " +
+        (result.events.length ? result.events.map(fmtEvent).join(" | ") : (ignored ? "(ignored by the rules)" : "-")));
+      render(result.events);
+    } catch (err) {
+      showError("Rules.step(" + input + ")", err);
+    }
+  }
+
+  // ---------- Replay check ----------
+
+  function parseInputs(text) {
+    const tokens = String(text || "").trim().toUpperCase().split(/\s+/).filter(Boolean);
+    const bad = tokens.filter(t => VALID_INPUTS.indexOf(t) === -1);
+    return { tokens, bad };
+  }
+
+  // Play inputs through the real rules from a fresh load. Never throws.
+  function play(level, carry, text) {
+    const run = { steps: [], state: null, error: null, mutated: false, wonAt: null };
+    const parsed = parseInputs(text);
+    if (parsed.bad.length) {
+      run.error = "unknown input(s): " + parsed.bad.join(", ");
+      return run;
+    }
+    try {
+      let s = Rules.load(level, carry);
+      run.startEvents = s.startEvents || [];
+      parsed.tokens.forEach((input, i) => {
+        const before = JSON.stringify(s);
+        const result = Rules.step(s, input);
+        if (JSON.stringify(s) !== before) run.mutated = true;   // step must never change its input
+        s = result.state;
+        run.steps.push({ input, events: result.events, state: s });
+        if (run.wonAt === null && s.status === "won") run.wonAt = i + 1;
+      });
+      run.state = s;
+    } catch (err) {
+      run.error = (err && err.message) ? err.message : String(err);
+    }
+    return run;
+  }
+
+  function summary(s) {
+    const mercy = s.carry ? s.carry.mercy : "?";
+    return "status " + s.status + " · cracks " + s.cracks + " · mercy " + mercy + " · ending " + s.ending;
+  }
+
+  function writeOut(lines) {
+    // lines: [{ text, cls }]
+    const out = $("out");
+    out.innerHTML = "";
+    lines.forEach(l => {
+      const span = document.createElement("span");
+      if (l.cls) span.className = l.cls;
+      span.textContent = l.text + "\n";
+      out.appendChild(span);
+    });
+  }
+
+  function doReplay() {
+    const level = allLevels[levelIndex];
+    const run = play(level, loadCarry, $("replayInput").value);
+    const lines = [{ text: "Replay: " + levelLabel(level) }];
+    if (run.startEvents && run.startEvents.length) lines.push({ text: "start  " + fmtEvents(run.startEvents).replace(/\n/g, " | ") });
+    run.steps.forEach((st, i) => {
+      lines.push({
+        text: String(i + 1).padStart(3) + ". " + st.input.padEnd(7) + " turn " + st.state.turn + "  " + st.state.status +
+          "  T" + fmtPos(st.state.person) + " R" + fmtPos(st.state.reflection) +
+          "\n       " + (st.events.length ? st.events.map(fmtEvent).join(" | ") : "-")
+      });
+    });
+    if (run.error) lines.push({ text: "ERROR: " + run.error, cls: "fail" });
+    if (run.mutated) lines.push({ text: "ERROR: step changed the state it was given", cls: "fail" });
+    if (run.state) {
+      lines.push({ text: "" });
+      lines.push({ text: "Final: " + summary(run.state), cls: run.state.status === "won" ? "pass" : (run.state.status === "failed" ? "fail" : "") });
+      // Show the end position on the board too.
+      state = run.state;
+      logLines.push("Replayed " + run.steps.length + " inputs → " + run.state.status);
+      render(run.steps.length ? run.steps[run.steps.length - 1].events : []);
+    }
+    writeOut(lines);
+  }
+
+  // Pass/fail for one solution run.
+  function judge(run, wantEnding) {
+    if (run.error) return { ok: false, why: "error: " + run.error };
+    if (run.mutated) return { ok: false, why: "step changed the state it was given" };
+    const s = run.state;
+    if (wantEnding) {
+      if (s.ending === wantEnding) return { ok: true, why: "ending " + s.ending + " · " + summary(s) };
+      return { ok: false, why: "wanted ending " + wantEnding + ", got " + summary(s) };
+    }
+    if (s.status !== "won") return { ok: false, why: "ended " + summary(s) };
+    let why = summary(s);
+    if (run.wonAt !== null && run.wonAt < run.steps.length) {
+      why += " (won at input " + run.wonAt + " of " + run.steps.length + ", extra inputs ignored)";
+    }
+    return { ok: true, why };
+  }
+
+  function doCheckAll() {
+    const lines = [{ text: "Check all levels" }];
+    let passed = 0, failed = 0;
+    allLevels.forEach(level => {
+      const label = levelLabel(level);
+      if (level.final || level.solutions) {
+        const sols = level.solutions || {};
+        ["take", "break", "stay"].forEach(key => {
+          if (!sols[key]) {
+            // The Level 12 safety net ships without Stay Behind.
+            const cls = key === "stay" ? "warn" : "fail";
+            if (cls === "fail") failed++;
+            lines.push({ text: (cls === "fail" ? "FAIL " : "SKIP ") + label + " [" + key + "]: no solution", cls });
+            return;
+          }
+          const r = judge(play(level, undefined, sols[key]), key);
+          r.ok ? passed++ : failed++;
+          lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + " [" + key + "]: " + r.why, cls: r.ok ? "pass" : "fail" });
+        });
+        return;
+      }
+      if (!level.solution) {
+        failed++;
+        lines.push({ text: "FAIL " + label + ": no solution", cls: "fail" });
+        return;
+      }
+      const r = judge(play(level, undefined, level.solution));
+      r.ok ? passed++ : failed++;
+      lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + ": " + r.why, cls: r.ok ? "pass" : "fail" });
+    });
+    lines.push({ text: "" });
+    lines.push({ text: passed + " passed, " + failed + " failed", cls: failed ? "fail" : "pass" });
+    writeOut(lines);
+  }
+
+  // Levels 5-8 in order, passing carry along. Fails if the glass breaks before Level 8's smash.
+  function doCheckChain() {
+    const lines = [{ text: "Check Act 2 chain (5 → 6 → 7 → 8)" }];
+    let carry = undefined;
+    let ok = true;
+    for (const n of [5, 6, 7, 8]) {
+      const level = realLevels.find(l => l.number === n);
+      if (!level) { ok = false; lines.push({ text: "FAIL Level " + n + ": not built yet", cls: "fail" }); break; }
+      if (!level.solution) { ok = false; lines.push({ text: "FAIL Level " + n + ": no solution", cls: "fail" }); break; }
+      const run = play(level, carry, level.solution);
+      const r = judge(run);
+      if (!r.ok) { ok = false; lines.push({ text: "FAIL Level " + n + ": " + r.why, cls: "fail" }); break; }
+      // A glassBreak is only allowed on Level 8's winning move (with the swap).
+      let early = null;
+      run.steps.forEach((st, i) => {
+        const types = st.events.map(e => e.type);
+        const isSmash = n === 8 && types.indexOf("swap") !== -1;
+        if (early === null && ((types.indexOf("glassBreak") !== -1 && !isSmash) || st.state.cracks >= 5)) early = i + 1;
+      });
+      if (early !== null) {
+        ok = false;
+        lines.push({ text: "FAIL Level " + n + ": the glass broke at input " + early + " (before Level 8's smash)", cls: "fail" });
+        break;
+      }
+      lines.push({ text: "PASS Level " + n + ": " + summary(run.state), cls: "pass" });
+      carry = run.state.carry;
+    }
+    lines.push({ text: "" });
+    lines.push({ text: ok ? "Chain passes" : "Chain fails", cls: ok ? "pass" : "fail" });
+    writeOut(lines);
+  }
+
+  // ---------- Wiring ----------
+
+  allLevels.forEach((level, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = levelLabel(level);
+    $("levelPick").appendChild(opt);
+  });
+
+  $("levelPick").addEventListener("change", e => { loadLevel(Number(e.target.value)); e.target.blur(); });
+  $("loadBtn").addEventListener("click", () => loadLevel(Number($("levelPick").value)));
+  $("nextBtn").addEventListener("click", () => {
+    if (levelIndex + 1 >= allLevels.length) { logLines.push("No more levels."); render(); return; }
+    loadLevel(levelIndex + 1, state ? state.carry : undefined);
+  });
+  $("replayBtn").addEventListener("click", doReplay);
+  $("solutionBtn").addEventListener("click", () => {
+    const level = allLevels[levelIndex];
+    $("replayInput").value = level.solution || (level.solutions ? JSON.stringify(level.solutions) : "");
+  });
+  $("checkAllBtn").addEventListener("click", doCheckAll);
+  $("checkChainBtn").addEventListener("click", doCheckChain);
+
+  const KEYS = {
+    ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R",
+    KeyW: "U", KeyS: "D", KeyA: "L", KeyD: "R",
+    KeyZ: "UNDO", KeyR: "RESTART",
+    ShiftLeft: "RESIST", ShiftRight: "RESIST"
+  };
+
+  document.addEventListener("keydown", e => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "textarea" || tag === "input" || tag === "select") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Page shortcut, not a rules input: Enter reloads the current level.
+    if (e.code === "Enter" || e.code === "NumpadEnter") {
+      e.preventDefault();
+      loadLevel(levelIndex, loadCarry);
+      return;
+    }
+    let input = KEYS[e.code];
+    if (e.code === "Space") input = state && state.act === 3 ? "FOLLOW" : "LOOK";
+    if (!input) return;
+    e.preventDefault();
+    if (e.repeat && input === "RESIST") return;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    send(input);
+  });
+
+  if (typeof Rules === "undefined") {
+    showError("startup", "Rules is missing (src/rules.js did not load)");
+  } else if (allLevels.length) {
+    loadLevel(0);
+  }
+  </script>
+</body>
+</html>

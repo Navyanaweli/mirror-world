@@ -1,12 +1,23 @@
-// STAND-IN rules (Person B). Person A replaces this whole file in step A2.
-// Follows the Rules interface: mirror rule, walls, goals, UNDO, RESTART.
-// Design v3: load returns startEvents: [] ; after "won" every input is ignored;
-// after "failed" only RESTART works.
+// Rules (Person A). The game's brain: no graphics, just state in, state out.
+// Follows the Shared contracts (Claude Playbook) with Design Update v3 on top.
+// Step A2: mirror rule, walls, goals, LOOK as a still turn, UNDO, RESTART, carry.
+// Still to come: A3 plates/doors/spikes, A4 tile triggers/disobeys/lag/Mercy,
+// A7 Act 3 (Follow/Resist/Break), A10 Level 12 endings.
 const Rules = (function () {
 
+  const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+  // The mirror swaps left and right only.
+  const MIRROR = { U: "U", D: "D", L: "R", R: "L" };
+  const DEFAULT_CARRY = { cracks: 0, mercy: 0, undoLockUsed: false };
+
+  function copy(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  // Split each map row at "|" into the real room (left) and the mirror room (right).
   function splitMap(map) {
     return {
-      left: map.map(row => row.split("|")[0]),
+      left: map.map(row => row.split("|")[0] || ""),
       right: map.map(row => row.split("|")[1] || "")
     };
   }
@@ -19,6 +30,12 @@ const Rules = (function () {
     return null;
   }
 
+  // The start letters become plain floor once the bodies are placed.
+  function clearStart(rows, ch) {
+    return rows.map(row => row.split(ch).join("."));
+  }
+
+  // Anything outside the map counts as wall.
   function tileAt(rows, x, y) {
     if (y < 0 || y >= rows.length) return "#";
     const row = rows[y];
@@ -26,118 +43,144 @@ const Rules = (function () {
     return row[x];
   }
 
-  function isBlocked(tile) {
-    // Stand-in: walls and every door (A, B) block.
-    return tile === "#" || tile === "A" || tile === "B";
+  function isSolid(state, tile) {
+    if (tile === "#") return true;
+    // Doors block while closed. Nothing opens them until plates arrive in A3.
+    if (tile === "A" || tile === "B") return state.openDoors.indexOf(tile) === -1;
+    return false;
   }
 
-  // Remove private fields before saving a snapshot.
+  function onTile(rows, body, ch) {
+    return tileAt(rows, body.x, body.y) === ch;
+  }
+
+  // A deep copy of the state for the history: everything except the history itself.
   function snapshot(state) {
-    const copy = JSON.parse(JSON.stringify(state));
-    delete copy._history;
-    delete copy._start;
-    return copy;
+    const s = {};
+    Object.keys(state).forEach(k => {
+      if (k !== "_history" && k !== "_start") s[k] = state[k];
+    });
+    return copy(s);
   }
 
-  function fromSnapshot(snap, state) {
-    const s = JSON.parse(JSON.stringify(snap));
-    s._start = state._start;
-    s._history = [];
+  // Build a fresh state from a snapshot. Snapshots are shared, never changed.
+  function restore(snap, start, history) {
+    const s = copy(snap);
+    s._start = start;
+    s._history = history;
     s.startEvents = [];
     return s;
   }
 
+  // A new state that matches the old one (step never changes the state it's given).
+  function unchanged(old) {
+    return { state: restore(snapshot(old), old._start, old._history), events: [] };
+  }
+
   function load(level, carry) {
-    const halves = splitMap(level.map);
+    const halves = splitMap(level.map || []);
     const act = level.act || 1;
+    const inCarry = Object.assign({}, DEFAULT_CARRY, carry ? copy(carry) : {});
+    // Cracks carry across Act 2 (one night). Acts 1 and 3 start at 0.
+    const cracks = act === 2 ? (inCarry.cracks || 0) : 0;
+
     const state = {
       act: act,
       person: find(halves.left, "T") || { x: 1, y: 1 },
       reflection: find(halves.right, "R") || { x: 1, y: 1 },
-      boxes: [],
+      boxes: [],                  // v3: boxes are cut, always empty
       openDoors: [],
-      map: level.map,
+      map: copy(level.map || []),
       turn: 0,
-      cracks: 0,
+      cracks: cracks,
       will: act === 3 ? (level.will || 0) : null,
-      look: false,
+      look: level.look === true,
       samLooking: false,
       footprints: [],
       slipTurns: 0,
       status: "playing",
       ending: null,
-      carry: carry || { cracks: 0, mercy: 0, undoLockUsed: false },
-      startEvents: [],
-      _left: halves.left,
-      _right: halves.right
+      carry: {
+        cracks: cracks,
+        mercy: inCarry.mercy || 0,
+        undoLockUsed: !!inCarry.undoLockUsed
+      },
+      startEvents: [],            // v3: at: "start" events arrive in A4
+      _left: clearStart(halves.left, "T"),
+      _right: clearStart(halves.right, "R")
     };
     state._start = snapshot(state);
     state._history = [];
     return state;
   }
 
-  const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
-  const MIRROR = { U: "U", D: "D", L: "R", R: "L" };
-
-  function step(oldState, input) {
-    // Never change the state we were given.
-    const state = JSON.parse(JSON.stringify(oldState));
-    state.startEvents = [];
+  // One turn in Acts 1-2. dir is "U"/"D"/"L"/"R", or null for LOOK (both stay still).
+  function takeTurn(old, dir) {
+    const state = restore(snapshot(old), old._start, old._history.concat([snapshot(old)]));
     const events = [];
-
-    // v3: after a win, ignore everything.
-    if (state.status === "won") return { state: oldState, events: [] };
-    // v3: after a fail, only RESTART works.
-    if (state.status === "failed" && input !== "RESTART") return { state: oldState, events: [] };
-
-    if (input === "RESTART") {
-      return { state: fromSnapshot(state._start, state), events: [] };
-    }
-
-    if (input === "UNDO") {
-      if (state._history.length === 0) return { state: oldState, events: [] };
-      const prev = state._history.pop();
-      const s = JSON.parse(JSON.stringify(prev));
-      s._start = state._start;
-      s._history = state._history;
-      s.startEvents = [];
-      return { state: s, events: [] };
-    }
-
-    if (!DIRS[input]) {
-      // LOOK, FOLLOW, RESIST etc. do nothing in the stand-in.
-      return { state: oldState, events: [] };
-    }
-
-    state._history.push(snapshot(oldState));
     state.turn += 1;
 
-    const moves = [
-      { who: "person", rows: state._left, dir: input },
-      { who: "reflection", rows: state._right, dir: MIRROR[input] }
-    ];
+    if (dir) {
+      // Work out both moves first, then move both at once.
+      const moves = [
+        { who: "person", rows: state._left, dir: dir },
+        { who: "reflection", rows: state._right, dir: MIRROR[dir] }
+      ];
+      moves.forEach(m => {
+        const body = state[m.who];
+        const d = DIRS[m.dir];
+        const to = { x: body.x + d[0], y: body.y + d[1] };
+        m.to = isSolid(state, tileAt(m.rows, to.x, to.y)) ? null : to;
+      });
+      moves.forEach(m => {
+        if (m.to) {
+          state[m.who] = m.to;
+          events.push({ type: "move", who: m.who, to: { x: m.to.x, y: m.to.y } });
+        } else {
+          events.push({ type: "blocked", who: m.who });
+        }
+      });
+    }
 
-    moves.forEach(m => {
-      const body = state[m.who];
-      const d = DIRS[m.dir];
-      const nx = body.x + d[0];
-      const ny = body.y + d[1];
-      if (isBlocked(tileAt(m.rows, nx, ny))) {
-        events.push({ type: "blocked", who: m.who });
-      } else {
-        state[m.who] = { x: nx, y: ny };
-        events.push({ type: "move", who: m.who, to: { x: nx, y: ny } });
-      }
-    });
-
-    const personOnGoal = tileAt(state._left, state.person.x, state.person.y) === "G";
-    const reflOnGoal = tileAt(state._right, state.reflection.x, state.reflection.y) === "G";
-    if (personOnGoal && reflOnGoal) {
+    // Win: both stand on their goal at the same moment.
+    if (onTile(state._left, state.person, "G") && onTile(state._right, state.reflection, "G")) {
       state.status = "won";
       events.push({ type: "win" });
     }
 
+    state.carry.cracks = state.cracks;
     return { state, events };
+  }
+
+  function step(oldState, input) {
+    // v3: after a win, ignore everything. After a fail, only RESTART works.
+    if (oldState.status === "won") return unchanged(oldState);
+    if (oldState.status === "failed" && input !== "RESTART") return unchanged(oldState);
+
+    if (input === "RESTART") {
+      return { state: restore(oldState._start, oldState._start, []), events: [] };
+    }
+
+    if (input === "UNDO") {
+      const history = oldState._history;
+      if (history.length === 0) return unchanged(oldState);
+      return {
+        state: restore(history[history.length - 1], oldState._start, history.slice(0, -1)),
+        events: []
+      };
+    }
+
+    // Act 3 inputs (FOLLOW / RESIST / Break) arrive in A7.
+    if (oldState.act === 3) return unchanged(oldState);
+
+    if (input === "LOOK") {
+      if (!oldState.look) return unchanged(oldState);
+      return takeTurn(oldState, null);
+    }
+
+    if (DIRS[input]) return takeTurn(oldState, input);
+
+    return unchanged(oldState);
   }
 
   return { load, step };

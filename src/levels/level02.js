@@ -2,6 +2,7 @@
 // Teaches: a plate on one side opens a door on the other, only while held.
 LEVELS.push({
   number: 2, name: "Bathroom", act: 1,
+  instructions: "A plate opens its door while someone stands on it, even across the glass.",
   map: [
     "#######|#######",
     "#..T..#|#...#O#",

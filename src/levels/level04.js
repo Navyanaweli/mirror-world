@@ -2,6 +2,7 @@
 // Teaches: cracks. Theo's goal is behind the glass, so he has to swap through.
 LEVELS.push({
   number: 4, name: "Study", act: 2,
+  instructions: "Your goal is behind the glass. Step on the crack to swap places through it.",
   map: [
     "#######|#######",
     "#D....#|#.....#",

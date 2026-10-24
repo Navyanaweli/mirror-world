@@ -2,6 +2,7 @@
 // Two cracks: through the glass and back again.
 LEVELS.push({
   number: 5, name: "Kitchen", act: 2,
+  instructions: "Two cracks: through the glass, and back again.",
   map: [
     "#######|#######",
     "#.^#..#|#....D#",

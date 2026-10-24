@@ -2,6 +2,7 @@
 // Act 2 finale. Theo crosses and doesn't come back. After winning, B plays the swap scene.
 LEVELS.push({
   number: 6, name: "Attic", act: 2,
+  instructions: "Plate, door and crack together. This time you won't come back.",
   map: [
     "#######|#######",
     "#....D#|#^^..%#",

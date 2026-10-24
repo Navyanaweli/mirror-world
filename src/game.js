@@ -15,10 +15,6 @@
   const BAR = 40;           // top and bottom bar height
   const SLIDE_MS = 120;
 
-  // TEMPORARY test keys (remove in B9): 1 = sample Act 3 HUD, 2 = swap scene, 3 = control card,
-  // 4 = Take Their Place, 5 = Break It Together with Mercy 2, 6 = Stay Behind.
-  const TEST_KEYS = true;
-
   // Art change palette. "silver" is the cool colour (shimmer, cracks, misty messages).
   const COLORS = {
     bg: 0x141526, bgCss: "#141526", floor: 0x3A2C3F, wall: 0x3B5560,
@@ -219,11 +215,9 @@
       this.locked = false;   // v3: won or failed, waiting for the next load
       this.doorSprites = [];
       this.footprints = [];
-      this.testHud = null;   // sample HUD values from test key 1
       this.cardShown = !!data.cardShown;
       // Phaser reuses this scene object, so reset per-level flags every time.
       this.cardOpen = false;
-      this.forceSwap = false;
       this.shimmerHinted = false;
       this.textSlots = {};
       this.glitchMarks = [];
@@ -374,7 +368,7 @@
 
     updateBars() {
       let s;
-      if (this.act3 || this.testHud) {
+      if (this.act3) {
         s = "Space Follow · Shift Resist · Arrow Break · Z undo · R restart";
       } else {
         s = "Arrows move · Z undo · R restart";
@@ -400,7 +394,7 @@
       this.updateHud();
     }
 
-    hudValues() { return this.testHud || this.state; }
+    hudValues() { return this.state; }
 
     // Team change: glitch tiles. Every disobey tile still waiting this attempt gets a faint
     // silver crack mark and a small arrow toward where the reflection will go.
@@ -439,7 +433,7 @@
     updateHud() {
       this.drawGlitches();
       const v = this.hudValues();
-      const show = this.act3 || !!this.testHud;
+      const show = this.act3;
 
       const will = v.will;
       this.willText.setVisible(show && will !== null && will !== undefined);
@@ -526,39 +520,11 @@
         if (e.repeat) return;
         if (e.code === "KeyM") { this.sound.mute = !this.sound.mute; return; }
         if (this.cardOpen) { if (e.code === "Space") this.closeControlCard(); return; }
-        if (TEST_KEYS && this.testKey(e.code)) return;
         let input = map[e.code];
         if (e.code === "Space") input = this.act3 ? "FOLLOW" : (this.state.look ? "LOOK" : null);
         if (e.code === "ShiftLeft" || e.code === "ShiftRight") input = this.act3 ? "RESIST" : null;
         if (input) this.send(input);
       });
-    }
-
-    // TEMPORARY (remove in B9). Lets B see Act 3 and the swap before A's levels exist.
-    testKey(code) {
-      if (this.busy || this.locked) return false;
-      if (code === "Digit1") {
-        const p = this.state.person;
-        this.testHud = this.testHud ? null : {
-          will: 3, samLooking: true,
-          footprints: [{ x: p.x + 1, y: p.y, glow: false }, { x: p.x + 2, y: p.y, glow: false }, { x: p.x + 3, y: p.y, glow: true }]
-        };
-        this.updateBars();
-        this.updateHud();
-        if (this.testHud) this.time.delayedCall(600, () => this.pulseWill());
-        return true;
-      }
-      if (code === "Digit2") {
-        this.forceSwap = true;
-        this.busy = true;
-        this.playEvents([{ type: "crack", cracks: 3 }, { type: "glassBreak" }, { type: "swap" }]);
-        return true;
-      }
-      if (code === "Digit3") { this.openControlCard(); return true; }
-      if (code === "Digit4") { this.showEnding("take", 0); return true; }
-      if (code === "Digit5") { this.showEnding("break", 2); return true; }
-      if (code === "Digit6") { this.showEnding("stay", 1); return true; }
-      return false;
     }
 
     send(input) {
@@ -647,7 +613,7 @@
           fx("onGlassBreak");
           fx("setCracks", 0);
           // Level 8's smash: TOGETHER appears on the mirror side, when it's already too late.
-          if (this.level.swap || this.forceSwap) return this.showTogether();
+          if (this.level.swap) return this.showTogether();
           return this.wait(400);
         case "moment":
           // Team change: pass the shimmer's direction on to C (undefined if there is none).
@@ -665,7 +631,8 @@
           return;
         case "fail":
           this.locked = true;
-          return this.wait(600).then(() => {
+          // NOT TONIGHT comes as text just before the fail: give it time to be read.
+          return this.wait(this.textThisTurn ? 2200 : 600).then(() => {
             const res = Rules.step(this.state, "RESTART");
             if (res && res.state) this.restartWith(res);
           });

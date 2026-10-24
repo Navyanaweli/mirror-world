@@ -401,7 +401,12 @@ const Effects = {
       return;
     }
 
-    this._play('moment', { volume: 0.25 });
+    // misty writing gets its own airy sound if text.wav exists,
+    // plus a whispered voice when B passes the words as the third argument
+    const voice = type === 'text' ? this._voiceFor(dir) : null;
+    const hasText = type === 'text' && s.cache.audio.exists('text');
+    this._play(hasText ? 'text' : 'moment', { volume: voice ? 0.2 : (hasText ? 0.35 : 0.25) });
+    if (voice) this._play(voice, { volume: 0.7 });
     this._dip();
 
     this._try('moment ' + type, () => {
@@ -452,6 +457,24 @@ const Effects = {
         this._later(2000, mist);
       }
     });
+  },
+
+  // Which voice line goes with which words (only if that sound was loaded)
+  _voices: {
+    "IM SORRY": 'voice-im-sorry',
+    "LET ME OUT": 'voice-let-me-out',
+    "IT HAS TO BE SOMEONE": 'voice-it-has-to-be-someone',
+    "TOGETHER": 'voice-together',
+    "ONE MORE": 'voice-one-more',
+    "IS SOMEONE THERE": 'voice-is-someone-there'
+  },
+
+  _voiceFor(words) {
+    if (typeof words !== 'string') return null;
+    const k = words.toUpperCase().replace(/[^A-Z ]/g, '').replace(/\s+/g, ' ').trim();
+    const key = this._voices[k];
+    const s = this.scene;
+    return key && s && s.cache.audio.exists(key) ? key : null;
   },
 
   // Shimmer with a direction: a gentle silver jitter and colour split on the body,

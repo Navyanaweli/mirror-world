@@ -34,7 +34,8 @@
     ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"],
     // C's whispered voice lines (optional; effects.js stays quiet if one is missing)
     ["voice-im-sorry", "mp3"], ["voice-let-me-out", "mp3"], ["voice-it-has-to-be-someone", "mp3"],
-    ["voice-together", "mp3"], ["voice-is-someone-there", "mp3"]];
+    ["voice-together", "mp3"], ["voice-is-someone-there", "mp3"],
+    ["title-theme", "mp3"]];   // C's front-page music (title screen only)
 
   // Shapes drawn in code when an image file is missing (128x128, smooth).
   function makeFallback(scene, key) {
@@ -224,9 +225,29 @@
       this.drawBackdrop();
       this.drawDust();
       this.drawMenu();
+      this.startTitleMusic();
 
       onKey(this, e => this.onKey(e));
       this.cameras.main.fadeIn(900, 20, 21, 38);
+    }
+
+    // C's title theme, front page only. Browsers hold sound until the first key or click,
+    // so if audio is still locked it starts then. It stops when the game starts or the
+    // title screen closes, so it never doubles up.
+    startTitleMusic() {
+      this.titleMusic = null;
+      if (!this.cache.audio.exists("title-theme")) return;
+      this.titleMusic = this.sound.add("title-theme", { loop: true, volume: 0.3 });
+      const play = () => { if (this.titleMusic && !this.titleMusic.isPlaying && !this.leaving) this.titleMusic.play(); };
+      if (this.sound.locked) this.sound.once("unlocked", play); else play();
+      this.events.once("shutdown", () => this.stopTitleMusic());
+    }
+
+    stopTitleMusic() {
+      if (!this.titleMusic) return;
+      this.titleMusic.stop();
+      this.titleMusic.destroy();
+      this.titleMusic = null;
     }
 
     // ---- art, logo and the living mirror
@@ -322,6 +343,7 @@
     start() {
       if (this.leaving) return;
       this.leaving = true;
+      this.stopTitleMusic();
       this.cameras.main.fadeOut(500, 20, 21, 38);
       this.cameras.main.once("camerafadeoutcomplete", () => startGame(this));
     }

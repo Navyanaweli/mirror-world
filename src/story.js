@@ -1,9 +1,18 @@
 // All story text (design v4). Mysterious and bittersweet, never scary.
 // Use \n for new lines. Every field from the contract (plus "together").
+// {theo} and {mara} are filled in by game.js with the names for this playthrough.
+
+// The first game is Leon and Noel. After Take Their Place the cycle repeats, and the
+// new game ("New Game — Sam" on the title) is Ivan and Navi.
+const NAMES = [
+  { theo: "Leon", mara: "Noel" },
+  { theo: "Ivan", mara: "Navi" }
+];
+
 const STORY = {
   intro:
     "The house was cheap because no one ever stayed.\n" +
-    "Theo stayed.\n" +
+    "{theo} stayed.\n" +
     "In the hallway hangs an old mirror\n" +
     "that no one ever took down.",
 
@@ -18,10 +27,10 @@ const STORY = {
     "Step on a crack, and it pulls you through.",
 
   swap:
-    "In the morning, someone wakes in Theo's bed.\n" +
-    "Mara touches her face. It is warm.\n" +
+    "In the morning, someone wakes in {theo}'s bed.\n" +
+    "{mara} touches her face. It is warm.\n" +
     "She walks out into the light.\n" +
-    "Behind the glass, Theo cannot follow.",
+    "Behind the glass, {theo} cannot follow.",
 
   together: "TOGETHER",
 
@@ -33,13 +42,13 @@ const STORY = {
 
   endingTake:
     "TAKE THEIR PLACE\n\n" +
-    "The glass gives way, and Theo steps out into the morning.\n" +
+    "The glass gives way, and {theo} steps out into the morning.\n" +
     "Behind him, Sam's reflection stops moving on its own.\n" +
     "The mirror waits for the next one.",
 
   endingStay:
     "STAY BEHIND\n\n" +
-    "Theo lets the night pass.\n" +
+    "{theo} lets the night pass.\n" +
     "Sam sleeps safely, and never knows.\n" +
     "In the glass, someone keeps watch.",
 

@@ -191,14 +191,26 @@
     }
   }
 
-  // Story text by field name, with a quiet fallback if story.js is missing a field.
+  // Which playthrough this is: 0 is the first game (Leon and Noel), 1 is the new game after
+  // Take Their Place (Ivan and Navi). The names come from NAMES in story.js.
+  let cycle = 0;
+  function names() {
+    const list = (typeof NAMES !== "undefined" && NAMES.length) ? NAMES : [{ theo: "Leon", mara: "Noel" }];
+    return list[Math.min(cycle, list.length - 1)];
+  }
+
+  // Story text by field name, with {theo} and {mara} filled in, and a quiet fallback
+  // if story.js is missing a field.
   function storyText(key) {
     const s = (typeof STORY !== "undefined") ? STORY[key] : null;
-    return (typeof s === "string" && s.length) ? s : "";
+    if (typeof s !== "string" || !s.length) return "";
+    const n = names();
+    return s.replace(/\{theo\}/g, n.theo).replace(/\{mara\}/g, n.mara);
   }
 
   // Start the first level, with the intro and the first act's card in front of it.
-  function startGame(scene) {
+  function startGame(scene, newCycle) {
+    cycle = newCycle || 0;
     const first = sortedLevels()[0];
     scene.scene.start("Story", {
       cards: ["intro", "act" + (first ? first.act : 1)],
@@ -345,7 +357,8 @@
       this.leaving = true;
       this.stopTitleMusic();
       this.cameras.main.fadeOut(500, 20, 21, 38);
-      this.cameras.main.once("camerafadeoutcomplete", () => startGame(this));
+      // "New Game — Sam" (after Take Their Place) starts the next cycle, with the new names.
+      this.cameras.main.once("camerafadeoutcomplete", () => startGame(this, this.afterTake ? 1 : 0));
     }
 
     // ---- panels: Settings, Controls, Credits (Esc or Back to close)

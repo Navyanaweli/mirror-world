@@ -1,4 +1,4 @@
-// Mirror World — game rules (design v4). Owner: Person A.
+// Aaina — game rules (design v4). Owner: Person A.
 // No graphics here. B's game.js talks to this only through Rules.load and Rules.step.
 //
 // THE RULES, in one place:

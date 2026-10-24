@@ -1,4 +1,4 @@
-// Mirror World (Aaina) — effects (Person C), design v4
+// Aaina — effects (Person C), design v4
 // Phaser 3.90, plain JavaScript. Nothing here may crash if something is missing.
 
 const Effects = {

@@ -34,7 +34,8 @@
     ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"],
     // C's whispered voice lines (optional; effects.js stays quiet if one is missing)
     ["voice-im-sorry", "mp3"], ["voice-let-me-out", "mp3"], ["voice-it-has-to-be-someone", "mp3"],
-    ["voice-together", "mp3"], ["voice-is-someone-there", "mp3"]];
+    ["voice-together", "mp3"], ["voice-is-someone-there", "mp3"],
+    ["title-theme", "mp3"]];   // C's front-page music (title screen only)
 
   // Shapes drawn in code when an image file is missing (128x128, smooth).
   function makeFallback(scene, key) {
@@ -121,7 +122,7 @@
   }
 
   // ---- Sound settings (volume and mute), remembered in this browser if storage allows.
-  const SETTINGS_KEY = "mirrorworld.settings";
+  const SETTINGS_KEY = "aaina.settings";
   function loadSettings() {
     try {
       const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
@@ -224,9 +225,29 @@
       this.drawBackdrop();
       this.drawDust();
       this.drawMenu();
+      this.startTitleMusic();
 
       onKey(this, e => this.onKey(e));
       this.cameras.main.fadeIn(900, 20, 21, 38);
+    }
+
+    // C's title theme, front page only. Browsers hold sound until the first key or click,
+    // so if audio is still locked it starts then. It stops when the game starts or the
+    // title screen closes, so it never doubles up.
+    startTitleMusic() {
+      this.titleMusic = null;
+      if (!this.cache.audio.exists("title-theme")) return;
+      this.titleMusic = this.sound.add("title-theme", { loop: true, volume: 0.3 });
+      const play = () => { if (this.titleMusic && !this.titleMusic.isPlaying && !this.leaving) this.titleMusic.play(); };
+      if (this.sound.locked) this.sound.once("unlocked", play); else play();
+      this.events.once("shutdown", () => this.stopTitleMusic());
+    }
+
+    stopTitleMusic() {
+      if (!this.titleMusic) return;
+      this.titleMusic.stop();
+      this.titleMusic.destroy();
+      this.titleMusic = null;
     }
 
     // ---- art, logo and the living mirror
@@ -261,10 +282,10 @@
       });
       this.add.rectangle(W / 2, seamY, 2, seamH, 0xE8FFFB, 0.8);
 
-      const logo = this.add.text(W / 2, 140, "MIRROR WORLD", {
+      const logo = this.add.text(W / 2, 140, "AAINA", {
         fontFamily: STORY_FONT, fontSize: "62px", color: COLORS.light
       }).setOrigin(0.5).setAlpha(0);
-      const echo = this.add.text(W / 2, 200, "MIRROR WORLD", {
+      const echo = this.add.text(W / 2, 200, "AAINA", {
         fontFamily: STORY_FONT, fontSize: "62px", color: COLORS.silver
       }).setOrigin(0.5).setScale(1, -0.55).setAlpha(0);
       this.tweens.add({ targets: logo, alpha: 1, duration: 1400, delay: 300 });
@@ -322,6 +343,7 @@
     start() {
       if (this.leaving) return;
       this.leaving = true;
+      this.stopTitleMusic();
       this.cameras.main.fadeOut(500, 20, 21, 38);
       this.cameras.main.once("camerafadeoutcomplete", () => startGame(this));
     }
@@ -683,6 +705,14 @@
       const style = { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.light };
       this.add.text(16, BAR / 2, "Level " + this.level.number + " · " + (this.level.name || ""), style)
         .setOrigin(0, 0.5).setDepth(21);
+      // Presentation shortcut: skip to the next level (click, or N). Not on the final room.
+      if (!this.level.final) {
+        const skip = this.add.text(W - 16, BAR / 2, "Skip level ▸  N", { ...style, fontSize: "14px", color: COLORS.dim })
+          .setOrigin(1, 0.5).setDepth(21).setPadding(8, 4, 8, 4).setInteractive({ useHandCursor: true });
+        skip.on("pointerover", () => skip.setColor(COLORS.silver));
+        skip.on("pointerout", () => skip.setColor(COLORS.dim));
+        skip.on("pointerdown", () => this.skipLevel());
+      }
       // v4 bottom bar, plus the pause menu key.
       this.add.text(W / 2, H - BAR / 2, "Arrows move · Z undo · R restart · Esc menu", { ...style, color: COLORS.dim })
         .setOrigin(0.5).setDepth(21);
@@ -724,6 +754,7 @@
         if (e.code === "Escape" || e.code === "KeyP") { this.menuOpen ? this.closeMenu() : this.openMenu(); return; }
         if (this.menuOpen) { this.menuKey(e.code); return; }
         if (e.code === "KeyM") { toggleMute(this); return; }
+        if (e.code === "KeyN") { this.skipLevel(); return; }
         const input = map[e.code];
         if (input) this.send(input);
       });
@@ -735,6 +766,7 @@
       return [
         { label: "Resume", act: () => this.closeMenu() },
         { label: "Restart level", act: () => { this.closeMenu(); this.send("RESTART"); } },
+        ...(this.level.final ? [] : [{ label: "Skip level", act: () => { this.closeMenu(); this.skipLevel(); } }]),
         { label: "Volume   ◀  " + vol + "%  ▶", value: "Volume   " + vol + "%",
           adjust: d => this.setVolume(SETTINGS.volume + d * 0.1),
           act: () => this.setVolume(SETTINGS.volume >= 0.99 ? 0 : SETTINGS.volume + 0.1) },
@@ -1034,6 +1066,15 @@
       const card = { take: "endingTake", break: "endingBreak", stay: "endingStay" }[which];
       const cards = card ? [card, "credits"] : ["credits"];
       this.scene.start("Story", { cards, next: { scene: "Title", data: { after: which } } });
+    }
+
+    // Presentation shortcut: leave this level as if it were solved, without the win animation.
+    // After Level 6 the swap and Act 3 cards still play, so the story stays in order.
+    skipLevel() {
+      if (this.locked || this.menuOpen || this.level.final) return;
+      this.locked = true;
+      const next = this.levels[this.index + 1];
+      this.nextLevel(next && this.level.act === 2 && next.act === 3 ? ["swap", "act3"] : undefined);
     }
 
     // Go to the next level. When the act changes, its story card comes first.

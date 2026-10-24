@@ -6,12 +6,14 @@
 //          slip, lag and the Level 5 undo lock.
 // Step A7: Act 3 (Sam's route, Follow/Resist/Break, Will, Sam's Look, footprints,
 //          Theo's message) and the Level 8 smash and swap.
-// Still to come: A10 Level 12 endings.
+// Step A10: Level 12 (final: true): the five ending checks, ONE MORE + strain at
+//          4 cracks, "Sam is about to leave...", and the Mercy TOGETHER text.
+// Team changes after v3: full-opposite mirror; state.glitches; shimmer carries dir.
 const Rules = (function () {
 
   const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
-  // The mirror swaps left and right only.
-  const MIRROR = { U: "U", D: "D", L: "R", R: "L" };
+  // Team change after v3: the reflection does the full opposite (left/right and up/down swap).
+  const MIRROR = { U: "D", D: "U", L: "R", R: "L" };
   const DEFAULT_CARRY = { cracks: 0, mercy: 0, undoLockUsed: false };
   // Door letter -> the plate that holds it open.
   const PLATES = { A: "a", B: "b" };
@@ -116,8 +118,9 @@ const Rules = (function () {
         events.push({ type: "hint", words: ev.words || "" });
         break;
       case "disobey":
-        // v3: the warning comes now, the disobey on the next move.
-        if (ev.warn) events.push({ type: "moment", kind: "shimmer", who: "reflection" });
+        // v3: the warning comes now, the disobey on the next move. dir lets the
+        // screen show which way the glitch will pull.
+        if (ev.warn) events.push({ type: "moment", kind: "shimmer", who: "reflection", dir: ev.dir });
         state._pending = { dir: ev.dir, kind: ev.kind === "required" ? "required" : "stoppable" };
         break;
       case "slip":
@@ -145,6 +148,20 @@ const Rules = (function () {
     if (!at || typeof at !== "object") return false;
     const body = at.who === "reflection" ? state.reflection : state.person;
     return body.x === at.x && body.y === at.y;
+  }
+
+  // Glitch tiles B draws: every tile disobey still waiting to fire this attempt.
+  function updateGlitches(state) {
+    state.glitches = [];
+    state._events.forEach((ev, i) => {
+      if (ev.do !== "disobey" || !ev.at || typeof ev.at !== "object") return;
+      if (state._fired.indexOf(i) !== -1) return;
+      state.glitches.push({
+        who: ev.at.who === "person" ? "person" : "reflection",
+        x: ev.at.x, y: ev.at.y, dir: ev.dir,
+        kind: ev.kind === "required" ? "required" : "stoppable"
+      });
+    });
   }
 
   // ---------- Act 3 helpers ----------
@@ -223,6 +240,7 @@ const Rules = (function () {
       slipTurns: 0,
       status: "playing",
       ending: null,
+      glitches: [],               // team change: [{who, x, y, dir, kind}] tiles that will glitch
       carry: {
         cracks: cracks,
         mercy: inCarry.mercy || 0,
@@ -243,11 +261,13 @@ const Rules = (function () {
       _route: String(level.samRoute || "").trim().split(/\s+/).filter(Boolean),
       _samLooks: (level.samLooks || []).slice(),
       _frameTurn: level.frameTurn || null,
-      _message: level.message || null
+      _message: level.message || null,
+      _willStart: act === 3 ? (level.will || 0) : 0
     };
     state._history = [];
     updateDoors(state, null);   // in case someone starts on a plate
     fireMatching(state, state.startEvents, ev => ev.at === "start");
+    updateGlitches(state);
     if (act === 3) updateSamView(state);
     state._start = snapshot(state);
     return state;
@@ -345,6 +365,7 @@ const Rules = (function () {
       fireMatching(state, events, ev => standsOn(state, ev.at));
     }
 
+    updateGlitches(state);
     state.carry.cracks = state.cracks;
     return { state, events };
   }
@@ -382,11 +403,25 @@ const Rules = (function () {
     const disobeyed = choice !== "follow";
     if (disobeyed) {
       state.will -= 1;
-      events.push({ type: "moment", kind: "shimmer", who: "reflection" });
-      addCrack(state, events);
+      const shimmer = { type: "moment", kind: "shimmer", who: "reflection" };
+      if (choice === "break") shimmer.dir = input;
+      events.push(shimmer);
+      if (state._final) {
+        // Level 12: the 5th crack is an ending, checked below, not an automatic break.
+        state.cracks += 1;
+        events.push({ type: "crack", cracks: state.cracks });
+        if (state.cracks === 4) {
+          events.push({ type: "text", words: "ONE MORE", side: "right", mirrored: true });
+          events.push({ type: "moment", kind: "strain", who: "reflection" });
+        }
+      } else {
+        addCrack(state, events);
+      }
     }
 
-    if (onEither(state, "^")) {
+    if (state._final) {
+      finalChecks(state, events, disobeyed);
+    } else if (onEither(state, "^")) {
       state.status = "failed";
       events.push({ type: "fail", reason: "spikes" });
     } else if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
@@ -394,7 +429,7 @@ const Rules = (function () {
       state.status = "failed";
       events.push({ type: "fail", reason: "seen" });
     } else if (state.turn >= state._route.length) {
-      // Sam's route is over. (Level 12's endings replace this in A10.)
+      // Sam's route is over.
       if (onTile(state._right, state.reflection, "G")) {
         state.status = "won";
         if (state._message) {
@@ -413,9 +448,51 @@ const Rules = (function () {
       fireMatching(state, events, ev => ev.turn === state.turn || standsOn(state, ev.at));
     }
 
+    if (state._final && state.status === "playing") {
+      // Mercy remembered: TOGETHER just before the glowing footprint.
+      if (state.carry.mercy >= 1 && state._frameTurn && state.turn === state._frameTurn - 1) {
+        events.push({ type: "text", words: "TOGETHER", side: "right", mirrored: true });
+      }
+      if (state.turn === state._route.length - 1) {
+        events.push({ type: "hint", words: "Sam is about to leave..." });
+      }
+    }
+
     updateSamView(state);
     state.carry.cracks = state.cracks;
     return { state, events };
+  }
+
+  // Level 12, every turn after moves and cracks. First match wins.
+  function finalChecks(state, events, disobeyed) {
+    const spent = state._willStart - state.will;
+    const routeOver = state.turn >= state._route.length;
+    const end = which => {
+      state.status = "won";
+      state.ending = which;
+      events.push({ type: "ending", which: which, mercy: state.carry.mercy });
+    };
+    if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
+      // 1. Sam sees Theo disobey.
+      state.status = "failed";
+      events.push({ type: "fail", reason: "seen" });
+    } else if (state.cracks >= 5) {
+      // 2. The 5th Will is spent: the glass breaks. Take Their Place.
+      breakGlass(state, events);
+      end("take");
+    } else if (state.turn === state._frameTurn &&
+               onTile(state._left, state.person, "F") && onTile(state._right, state.reflection, "F")) {
+      // 3. Both touch the frame while the glass is unbroken. Break It Together.
+      end("break");
+    } else if (routeOver && spent === 0) {
+      // 4. Theo never pushed. Stay Behind.
+      end("stay");
+    } else if (routeOver) {
+      // 5. Some Will spent, no frame: no ending tonight.
+      events.push({ type: "text", words: "NOT TONIGHT", side: "right", mirrored: true });
+      state.status = "failed";
+      events.push({ type: "fail", reason: "not-tonight" });
+    }
   }
 
   function step(oldState, input) {

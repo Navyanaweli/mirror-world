@@ -103,6 +103,7 @@
       IMAGES.forEach(k => this.load.image(k, "assets/images/" + k + ".png"));
       SOUNDS.forEach(([k, ext]) => this.load.audio(k, "assets/sounds/" + k + "." + ext));
       this.load.image("title", "assets/images/title.png"); // optional, 960x540
+      this.load.image("glitch", "assets/images/glitch.png"); // optional; drawn in code if missing
     }
 
     create() {
@@ -225,6 +226,7 @@
       this.forceSwap = false;
       this.shimmerHinted = false;
       this.textSlots = {};
+      this.glitchMarks = [];
 
       // A restart arrives with the state (and events) that RESTART returned.
       // Otherwise this is a fresh level.
@@ -400,7 +402,42 @@
 
     hudValues() { return this.testHud || this.state; }
 
+    // Team change: glitch tiles. Every disobey tile still waiting this attempt gets a faint
+    // silver crack mark and a small arrow toward where the reflection will go.
+    // Redrawn from the state after every step, undo and restart.
+    drawGlitches() {
+      (this.glitchMarks || []).forEach(o => o.destroy());
+      this.glitchMarks = [];
+      (this.state.glitches || []).forEach(gl => {
+        const side = gl.who === "person" ? "left" : "right";
+        const p = this.tilePos(side, gl.x, gl.y);
+        if (this.textures.exists("glitch")) {
+          this.glitchMarks.push(this.add.image(p.x, p.y, "glitch").setDisplaySize(TILE, TILE)
+            .setAlpha(0.75).setDepth(3));
+        } else {
+          const g = this.add.graphics().setDepth(3);
+          g.lineStyle(2, COLORS.cool, 0.5);
+          g.beginPath();
+          g.moveTo(p.x - 20, p.y - 14); g.lineTo(p.x - 6, p.y - 4); g.lineTo(p.x - 12, p.y + 6);
+          g.lineTo(p.x + 4, p.y + 16); g.moveTo(p.x - 6, p.y - 4); g.lineTo(p.x + 10, p.y - 10);
+          g.lineTo(p.x + 20, p.y - 2);
+          g.strokePath();
+          this.glitchMarks.push(g);
+        }
+        // A small arrow toward dir, near the tile's edge.
+        const d = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] }[gl.dir];
+        if (d) {
+          const ax = p.x + d[0] * 20, ay = p.y + d[1] * 20;
+          const angle = Math.atan2(d[1], d[0]);
+          const tri = this.add.triangle(ax, ay, 0, -6, 10, 0, 0, 6, COLORS.cool, 0.8)
+            .setRotation(angle).setDepth(3);
+          this.glitchMarks.push(tri);
+        }
+      });
+    }
+
     updateHud() {
+      this.drawGlitches();
       const v = this.hudValues();
       const show = this.act3 || !!this.testHud;
 
@@ -561,6 +598,7 @@
 
     // ---- events
     async playEvents(events) {
+      this.batchHasText = events.some(e => eventName(e) === "text");
       let i = 0;
       while (i < events.length) {
         // Moves and bumps that come together play at the same moment.
@@ -612,7 +650,8 @@
           if (this.level.swap || this.forceSwap) return this.showTogether();
           return this.wait(400);
         case "moment":
-          fx("onMoment", ev.kind, this.sprite(ev.who || "reflection"));
+          // Team change: pass the shimmer's direction on to C (undefined if there is none).
+          fx("onMoment", ev.kind, this.sprite(ev.who || "reflection"), ev.dir);
           // A warned disobey is coming: draw the eye to the Look key.
           if (ev.kind === "shimmer" && this.state.look && !this.act3) this.pulseKeys();
           if (ev.kind === "strain") this.pulseWill();
@@ -620,7 +659,9 @@
         case "text":
           return this.showText(ev.words, ev.side, ev.mirrored);
         case "hint":
-          this.showHint(ev.words);
+          // If glass text comes in the same batch, show the hint a little after it.
+          if (this.batchHasText) this.time.delayedCall(1100, () => this.showHint(ev.words));
+          else this.showHint(ev.words);
           return;
         case "fail":
           this.locked = true;

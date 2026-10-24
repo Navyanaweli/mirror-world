@@ -21,7 +21,8 @@ LEVELS.push({
     "#######|#######"
   ],
   events: [
-    { at: "start", do: "hint", words: "One of us holds the door. The other walks through." }
+    { at: "start", do: "hint", words: "One of us holds the door. The other walks through. To send the reflection up, I look down." }
   ],
-  solution: "U R R R R D D D D R"
+  solution: "U R R R R D D D D R",
+  instructions: "Each of you holds the other's door. Go Up, then Right until you bump the end wall once more: that puts the reflection on its plate and opens your door. Go Down through it onto your plate (this opens the reflection's door). Now press Down twice: you stay put while the reflection climbs Up to its goal. Finish with Right onto yours. Careful: spikes under the top corridor, and Left or Right on your plate pulls the reflection away from its door (press Z to undo)."
 });

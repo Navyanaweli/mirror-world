@@ -30,5 +30,6 @@ LEVELS.push({
     take: "RESIST RESIST FOLLOW RESIST RESIST RESIST",
     break: "D FOLLOW FOLLOW FOLLOW D R FOLLOW",
     stay: "FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW"
-  }
+  },
+  instructions: "The final choice. 5 Will. The footprints show Sam's next steps; the glowing one is when Sam touches the frame. Follow every turn: you stay behind and Sam is safe. Spend all 5 Will: you take Sam's place. Or reach your own frame (bottom right) at the same moment Sam touches theirs: you break it together. Slip Down into the gap first, wait there while the eye shows, then go Down and Right."
 });

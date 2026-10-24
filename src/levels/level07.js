@@ -25,7 +25,8 @@ LEVELS.push({
     { at: { who: "reflection", x: 3, y: 2 }, do: "tilt" },
     { at: { who: "reflection", x: 3, y: 2 }, do: "disobey", dir: "U", kind: "required", warn: true },
     { at: { who: "person", x: 5, y: 1 }, do: "slip", turns: 2 },
-    { at: { who: "person", x: 5, y: 1 }, do: "hint", words: "She's leading now. Guide her home." }
+    { at: { who: "person", x: 5, y: 1 }, do: "hint", words: "Mara leads now. Guide Mara home." }
   ],
-  solution: "R LOOK R R R R D L R"
+  solution: "R LOOK R R R R D L R",
+  instructions: "Two crack tiles. When the glass shimmers, the arrow shows where the reflection will glitch next move. Stop the first with Space (or let it happen: it costs a crack). Do NOT stop the second: it pulls the reflection up onto the plate that opens your door. Never press Down: spikes. Push Right into the closed door until it opens, then walk through. When the slip starts, your keys move the reflection for 2 turns: press Down, then Left, then Right to finish."
 });

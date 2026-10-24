@@ -19,5 +19,6 @@ LEVELS.push({
     { at: { who: "reflection", x: 3, y: 1 }, do: "disobey", dir: "D", kind: "required", warn: false },
     { at: { who: "reflection", x: 3, y: 2 }, do: "text", words: "LET ME OUT", side: "right", mirrored: true }
   ],
-  solution: "R R L R R D D"
+  solution: "R R L R R D D",
+  instructions: "Your reflection now copies you 2 moves late. Never press Up: spikes. Walk right toward your glowing tile; if it arrives one step off, step back once (Left). Press Down to wait in place (you bump the wall) while it catches up. The crack tile in the glass pulls it down on its own: that's how it reaches its goal. Undo stops working after your first step."
 });

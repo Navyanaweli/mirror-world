@@ -50,7 +50,7 @@ const STORY = {
     "No one is left behind the glass.",
 
   credits:
-    "MIRROR WORLD\n" +
+    "AAINA\n" +
     "a game about reversal\n\n" +
     "Aryendra Pratap Singh — logic & levels\n" +
     "Navya Naweli — screens & story\n" +

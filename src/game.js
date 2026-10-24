@@ -122,7 +122,7 @@
   }
 
   // ---- Sound settings (volume and mute), remembered in this browser if storage allows.
-  const SETTINGS_KEY = "mirrorworld.settings";
+  const SETTINGS_KEY = "aaina.settings";
   function loadSettings() {
     try {
       const v = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
@@ -282,10 +282,10 @@
       });
       this.add.rectangle(W / 2, seamY, 2, seamH, 0xE8FFFB, 0.8);
 
-      const logo = this.add.text(W / 2, 140, "MIRROR WORLD", {
+      const logo = this.add.text(W / 2, 140, "AAINA", {
         fontFamily: STORY_FONT, fontSize: "62px", color: COLORS.light
       }).setOrigin(0.5).setAlpha(0);
-      const echo = this.add.text(W / 2, 200, "MIRROR WORLD", {
+      const echo = this.add.text(W / 2, 200, "AAINA", {
         fontFamily: STORY_FONT, fontSize: "62px", color: COLORS.silver
       }).setOrigin(0.5).setScale(1, -0.55).setAlpha(0);
       this.tweens.add({ targets: logo, alpha: 1, duration: 1400, delay: 300 });

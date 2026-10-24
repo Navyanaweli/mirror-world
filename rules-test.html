@@ -62,6 +62,8 @@
       <h2>Board</h2>
       <pre id="board"></pre>
       <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame · ! glitch tile · o Sam's next steps (* = frame turn)</div>
+      <h2>How to play this level</h2>
+      <div id="guide" class="hint" style="font-size: 13px; max-width: 640px;"></div>
       <h2>State</h2>
       <pre id="info"></pre>
       <h2>Last events</h2>
@@ -456,6 +458,7 @@
     levelIndex = index;
     $("levelPick").value = String(index);
     loadCarry = carry ? JSON.parse(JSON.stringify(carry)) : undefined;
+    $("guide").textContent = allLevels[index].instructions || "(no instructions for this level yet)";
     try {
       state = Rules.load(allLevels[index], carry);
     } catch (err) {

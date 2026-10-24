@@ -20,5 +20,6 @@ LEVELS.push({
   events: [
     { at: "start", do: "hint", words: "Where she once slipped free, I can too." }
   ],
-  solution: "FOLLOW FOLLOW D FOLLOW RESIST FOLLOW FOLLOW"
+  solution: "FOLLOW FOLLOW D FOLLOW RESIST FOLLOW FOLLOW",
+  instructions: "You are Theo now, inside the mirror. Sam walks a set path. Space = Follow her, Shift = Resist (stay still), Arrow = Break (move your own way). Resist and Break cost 1 Will each: you have 2. Never disobey while the eye shows. Break Down at the spot where Mara once broke free (third move), then Resist once so you stop on your glowing tile."
 });

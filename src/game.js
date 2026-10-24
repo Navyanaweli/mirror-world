@@ -1,17 +1,25 @@
-// game.js (Person B) — step B2: the level screen.
+// game.js (Person B) — level screen, title, story cards and game flow.
 // Talks to A only through Rules.load / Rules.step, and to C only through Effects.*
-// Design v3: everything drawn at 2x (64 px tiles), 32 px mirror strip, centred.
+// Design v3 + art change: images are 128x128 files drawn at 64 px with setDisplaySize,
+// smooth (not pixel art). Each half is a rounded "screen" with a soft shadow,
+// and a glowing seam runs down the 32 px mirror strip.
 
 (function () {
   const W = 960, H = 540;
-  const TILE = 64;          // 32x32 files, drawn at 2x
+  const TILE = 64;          // every image is drawn 64x64 on screen, whatever its file size
+  const TEX = 128;          // size of the fallback textures made in code
+  const RADIUS = 18;        // corner radius of each room's "screen"
+  const UI_FONT = "'Segoe UI', system-ui, -apple-system, sans-serif";
+  const STORY_FONT = "Georgia, 'Times New Roman', serif";
   const STRIP = 32;         // mirror strip width on screen
   const BAR = 40;           // top and bottom bar height
   const SLIDE_MS = 120;
 
+  // Art change palette. "silver" is the cool colour (shimmer, cracks, misty messages).
   const COLORS = {
-    bg: 0x11141C, floor: 0x232A3A, wall: 0x4A5570,
-    light: "#EAE4D6", silver: "#9FD6E0", warm: "#E9B872"
+    bg: 0x141526, bgCss: "#141526", floor: 0x3A2C3F, wall: 0x3B5560,
+    light: "#F0E6D2", silver: "#A8E0D8", warm: "#F2A65A",
+    cool: 0xA8E0D8, dim: "#9A97A8", faint: "#6A6880", bar: 0x0E0F1C
   };
 
   const IMAGES = ["theo", "reflection", "sam", "floor", "wall", "goal", "plate",
@@ -19,12 +27,48 @@
   const SOUNDS = [["step", "wav"], ["crack", "wav"], ["break", "wav"], ["moment", "wav"],
     ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"]];
 
-  // Colour used when an image file is missing. Characters get two dots for eyes.
-  const FALLBACK = {
-    theo: [0xE9B872, true], reflection: [0x9FD6E0, true], sam: [0xEAE4D6, true],
-    floor: [0x232A3A], wall: [0x4A5570], goal: [0x3E6670], plate: [0x7A6A4F],
-    "door-closed": [0x5A4636], "door-open": [0x2A2420], spikes: [0x8A5A66], frame: [0xB89A6A]
-  };
+  // Shapes drawn in code when an image file is missing (128x128, smooth).
+  function makeFallback(scene, key) {
+    const g = scene.make.graphics({ add: false });
+    const S = TEX, c = S / 2;
+    const body = (color) => {
+      g.fillStyle(0x000000, 0.18).fillEllipse(c, S - 22, 70, 16);           // soft shadow
+      g.fillStyle(color, 1).fillRoundedRect(28, 24, 72, 80, 30);
+      g.fillStyle(0x141526, 1).fillCircle(50, 58, 6).fillCircle(78, 58, 6); // eyes
+    };
+    switch (key) {
+      case "theo": body(0xF2A65A); break;
+      case "reflection": body(0xA8E0D8); break;
+      case "sam": body(0xF0E6D2); break;
+      case "floor":
+        g.fillStyle(0x3A2C3F, 1).fillRect(0, 0, S, S);
+        g.lineStyle(2, 0xFFFFFF, 0.04).strokeRect(1, 1, S - 2, S - 2); break;
+      case "wall":
+        g.fillStyle(0x3B5560, 1).fillRect(0, 0, S, S);
+        g.fillStyle(0xFFFFFF, 0.05).fillRect(0, 0, S, 10); break;
+      case "goal":
+        g.fillStyle(0xA8E0D8, 0.10).fillCircle(c, c, 52);
+        g.fillStyle(0xA8E0D8, 0.18).fillCircle(c, c, 38);
+        g.lineStyle(4, 0xA8E0D8, 0.7).strokeCircle(c, c, 30); break;
+      case "plate":
+        g.fillStyle(0x000000, 0.2).fillRoundedRect(22, 26, 84, 84, 18);
+        g.fillStyle(0xC9A66B, 1).fillRoundedRect(22, 20, 84, 84, 18); break;
+      case "door-closed":
+        g.fillStyle(0x7A5236, 1).fillRoundedRect(10, 6, S - 20, S - 12, 14);
+        g.fillStyle(0xF2A65A, 0.9).fillCircle(S - 34, c, 6); break;
+      case "door-open":
+        g.lineStyle(4, 0x7A5236, 0.6).strokeRoundedRect(10, 6, S - 20, S - 12, 14); break;
+      case "spikes":
+        g.fillStyle(0xC77B8A, 0.9);
+        [[24, 104], [64, 104], [104, 104]].forEach(([x, y]) => g.fillTriangle(x - 18, y, x + 18, y, x, y - 52)); break;
+      case "frame":
+        g.lineStyle(8, 0xF2A65A, 0.85).strokeRoundedRect(14, 14, S - 28, S - 28, 16); break;
+      default:
+        g.fillStyle(0x888888, 1).fillRect(0, 0, S, S);
+    }
+    g.generateTexture(key, S, S);
+    g.destroy();
+  }
 
   // Call one of C's Effects functions without ever crashing the game.
   function fx(name, ...args) {
@@ -58,23 +102,10 @@
     }
 
     create() {
-      IMAGES.forEach(key => {
-        if (this.textures.exists(key)) return;
-        const [color, eyes] = FALLBACK[key] || [0x888888];
-        const g = this.make.graphics({ add: false });
-        if (eyes) {
-          g.fillStyle(color, 1).fillRoundedRect(4, 4, 24, 24, 6);
-          g.fillStyle(0x11141C, 1).fillRect(10, 12, 3, 4).fillRect(19, 12, 3, 4);
-        } else {
-          g.fillStyle(color, 1).fillRect(0, 0, 32, 32);
-          g.lineStyle(1, 0x000000, 0.15).strokeRect(0.5, 0.5, 31, 31);
-        }
-        g.generateTexture(key, 32, 32);
-        g.destroy();
-      });
+      IMAGES.forEach(key => { if (!this.textures.exists(key)) makeFallback(this, key); });
 
       if (sortedLevels().length === 0) {
-        this.add.text(W / 2, H / 2, "No levels found", { fontFamily: "monospace", fontSize: "20px", color: COLORS.light }).setOrigin(0.5);
+        this.add.text(W / 2, H / 2, "No levels found", { fontFamily: UI_FONT, fontSize: "20px", color: COLORS.light }).setOrigin(0.5);
         return;
       }
       this.scene.start("Title");
@@ -107,26 +138,26 @@
         this.add.image(W / 2, H / 2, "title").setDisplaySize(W, H);
       } else {
         this.add.text(W / 2, H / 2 - 70, "MIRROR WORLD", {
-          fontFamily: "Georgia, serif", fontSize: "56px", color: COLORS.light
+          fontFamily: STORY_FONT, fontSize: "58px", color: COLORS.light
         }).setOrigin(0.5);
       }
 
       const prompt = this.add.text(W / 2, H - 150, "Press Enter", {
-        fontFamily: "monospace", fontSize: "20px", color: COLORS.silver
+        fontFamily: UI_FONT, fontSize: "20px", color: COLORS.silver
       }).setOrigin(0.5);
       this.tweens.add({ targets: prompt, alpha: 0.35, duration: 1100, yoyo: true, repeat: -1 });
 
       this.add.text(W / 2, H - 70,
         "Arrows / WASD move · Space look · Z undo · R restart · M mute", {
-          fontFamily: "monospace", fontSize: "14px", color: "#B8BCC8",
-          backgroundColor: hasArt ? "#11141CAA" : null, padding: { x: 8, y: 4 }
+          fontFamily: UI_FONT, fontSize: "15px", color: COLORS.dim,
+          backgroundColor: hasArt ? "#141526AA" : null, padding: { x: 10, y: 5 }
         }).setOrigin(0.5);
 
       this.input.keyboard.on("keydown", e => {
         if (e.code === "KeyM") this.sound.mute = !this.sound.mute;
       });
       this.input.keyboard.once("keydown-ENTER", () => startGame(this));
-      this.cameras.main.fadeIn(600, 17, 20, 28);
+      this.cameras.main.fadeIn(600, 20, 21, 38);
     }
   }
 
@@ -143,11 +174,11 @@
 
       this.cameras.main.setBackgroundColor(COLORS.bg);
       const t = this.add.text(W / 2, H / 2 - 10, storyText(cards[0]), {
-        fontFamily: "Georgia, serif", fontSize: "26px", color: COLORS.light,
+        fontFamily: STORY_FONT, fontSize: "26px", color: COLORS.light,
         align: "center", lineSpacing: 12, wordWrap: { width: 760 }
       }).setOrigin(0.5).setAlpha(0);
       const hint = this.add.text(W / 2, H - 50, "Enter", {
-        fontFamily: "monospace", fontSize: "14px", color: "#6B7286"
+        fontFamily: UI_FONT, fontSize: "14px", color: COLORS.faint
       }).setOrigin(0.5).setAlpha(0);
 
       this.tweens.add({ targets: t, alpha: 1, duration: 900 });
@@ -160,7 +191,7 @@
         if (e.code !== "Enter" || !ready) return;
         ready = false;
         const rest = cards.slice(1);
-        this.cameras.main.fadeOut(300, 17, 20, 28);
+        this.cameras.main.fadeOut(300, 20, 21, 38);
         this.cameras.main.once("camerafadeoutcomplete", () => {
           if (rest.length) this.scene.restart({ cards: rest, next });
           else this.scene.start(next.scene, next.data);
@@ -228,36 +259,71 @@
       return { x: x0 + x * TILE + TILE / 2, y: this.top + y * TILE + TILE / 2 };
     }
 
-    image(side, x, y, key) {
+    // Art change: setDisplaySize, so any file size (128x128, or a 32x32 leftover) shows at 64 px.
+    image(side, x, y, key, layer) {
       const p = this.tilePos(side, x, y);
-      return this.add.image(p.x, p.y, key).setScale(TILE / 32);
+      const img = this.add.image(p.x, p.y, key).setDisplaySize(TILE, TILE);
+      if (layer) layer.add(img);
+      return img;
     }
 
+    // Each half is its own rounded "screen" with a soft shadow; the tiles are clipped to it.
     drawMap() {
-      [["left", this.leftRows], ["right", this.rightRows]].forEach(([side, rows]) => {
-        rows.forEach((row, y) => {
-          for (let x = 0; x < row.length; x++) {
-            const ch = row[x];
-            if (ch === " ") continue;
-            if (ch === "#") { this.image(side, x, y, "wall"); continue; }
-            this.image(side, x, y, "floor");
-            if (ch === "G") this.image(side, x, y, "goal");
-            else if (ch === "^") this.image(side, x, y, "spikes");
-            else if (ch === "a" || ch === "b") this.image(side, x, y, "plate");
-            else if (ch === "F") this.image(side, x, y, "frame");
-            else if (ch === "A" || ch === "B") {
-              const s = this.image(side, x, y, "door-closed");
-              this.doorSprites.push({ letter: ch, sprite: s });
-            }
-          }
-        });
-      });
-      this.refreshDoors();
-
-      // The mirror strip between the two rooms (C adds the shimmer).
       const h = this.rows * TILE;
-      this.add.rectangle(this.mirrorX, this.top + h / 2, STRIP, h, 0x9FD6E0, 0.12);
-      this.add.rectangle(this.mirrorX, this.top + h / 2, 2, h, 0x9FD6E0, 0.45);
+      [["left", this.leftRows, this.leftX, this.leftCols], ["right", this.rightRows, this.rightX, this.rightCols]]
+        .forEach(([side, rows, x0, cols]) => {
+          const w = cols * TILE;
+
+          // Soft shadow: a few faint layers, each a little bigger and lower.
+          const shadow = this.add.graphics().setDepth(-2);
+          for (let i = 4; i >= 1; i--) {
+            shadow.fillStyle(0x000000, 0.07)
+              .fillRoundedRect(x0 - i * 3, this.top - i * 2 + 8, w + i * 6, h + i * 5, RADIUS + i * 3);
+          }
+
+          // The room's tiles live in a layer clipped to the rounded screen.
+          const layer = this.add.container(0, 0).setDepth(0);
+          const maskShape = this.make.graphics({ add: false });
+          maskShape.fillStyle(0xFFFFFF, 1).fillRoundedRect(x0, this.top, w, h, RADIUS);
+          layer.setMask(maskShape.createGeometryMask());
+
+          rows.forEach((row, y) => {
+            for (let x = 0; x < row.length; x++) {
+              const ch = row[x];
+              if (ch === " ") continue;
+              if (ch === "#") { this.image(side, x, y, "wall", layer); continue; }
+              this.image(side, x, y, "floor", layer);
+              if (ch === "G") this.image(side, x, y, "goal", layer);
+              else if (ch === "^") this.image(side, x, y, "spikes", layer);
+              else if (ch === "a" || ch === "b") this.image(side, x, y, "plate", layer);
+              else if (ch === "F") this.image(side, x, y, "frame", layer);
+              else if (ch === "A" || ch === "B") {
+                const s = this.image(side, x, y, "door-closed", layer);
+                this.doorSprites.push({ letter: ch, sprite: s });
+              }
+            }
+          });
+
+          // A faint rim of light around the screen.
+          this.add.graphics().setDepth(5)
+            .lineStyle(2, COLORS.cool, 0.16).strokeRoundedRect(x0 + 1, this.top + 1, w - 2, h - 2, RADIUS);
+        });
+      this.refreshDoors();
+      this.drawSeam(h);
+    }
+
+    // The glowing seam down the middle of the 32 px mirror strip (C adds fog and shimmer on top).
+    drawSeam(h) {
+      const cy = this.top + h / 2;
+      const glow = [
+        this.add.rectangle(this.mirrorX, cy, 22, h - 8, COLORS.cool, 0.05),
+        this.add.rectangle(this.mirrorX, cy, 12, h - 8, COLORS.cool, 0.10),
+        this.add.rectangle(this.mirrorX, cy, 6, h - 8, COLORS.cool, 0.20)
+      ];
+      const core = this.add.rectangle(this.mirrorX, cy, 2, h - 8, 0xE8FFFB, 0.85);
+      glow.concat(core).forEach(o => o.setDepth(4));
+      this.tweens.add({ targets: glow, alpha: { from: 1, to: 0.55 }, duration: 2400,
+        yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     }
 
     drawCharacters() {
@@ -269,14 +335,14 @@
     }
 
     drawBars() {
-      this.add.rectangle(W / 2, BAR / 2, W, BAR, 0x0B0D13, 1).setDepth(20);
-      this.add.rectangle(W / 2, H - BAR / 2, W, BAR, 0x0B0D13, 1).setDepth(20);
-      const style = { fontFamily: "monospace", fontSize: "16px", color: COLORS.light };
+      this.add.rectangle(W / 2, BAR / 2, W, BAR, COLORS.bar, 0.85).setDepth(20);
+      this.add.rectangle(W / 2, H - BAR / 2, W, BAR, COLORS.bar, 0.85).setDepth(20);
+      const style = { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.light };
       this.add.text(16, BAR / 2, "Level " + this.level.number + " · " + (this.level.name || ""), style)
         .setOrigin(0, 0.5).setDepth(21);
-      this.keysText = this.add.text(W / 2, H - BAR / 2, "", { ...style, color: "#B8BCC8" })
+      this.keysText = this.add.text(W / 2, H - BAR / 2, "", { ...style, color: COLORS.dim })
         .setOrigin(0.5).setDepth(21);
-      this.hintText = this.add.text(W / 2, H - BAR - 18, "", { ...style, color: "#B8BCC8", fontSize: "14px" })
+      this.hintText = this.add.text(W / 2, H - BAR - 14, "", { ...style, color: COLORS.light, fontSize: "15px", fontStyle: "italic" })
         .setOrigin(0.5).setAlpha(0).setDepth(21);
       this.updateBars();
     }
@@ -393,7 +459,9 @@
         case "blocked": {
           const s = this.sprite(ev.who);
           if (!s) return;
-          return this.tween({ targets: s, scaleX: 1.8, scaleY: 2.2, duration: 60, yoyo: true });
+          const sx = s.scaleX, sy = s.scaleY;   // relative, so it works at any file size
+          return this.tween({ targets: s, scaleX: sx * 0.9, scaleY: sy * 1.1, duration: 70, yoyo: true,
+            ease: "Sine.easeOut" }).then(() => s.setScale(sx, sy));
         }
         case "door":
           this.doorSprites.filter(d => d.letter === ev.letter)
@@ -450,14 +518,14 @@
       if (this.textSlots[side]) this.textSlots[side].forEach(o => { this.tweens.killTweensOf(o); o.destroy(); });
 
       const t = this.add.text(cx, cy, words || "", {
-        fontFamily: "Georgia, serif", fontSize: "26px", color: COLORS.silver, align: "center",
+        fontFamily: STORY_FONT, fontSize: "26px", color: COLORS.silver, align: "center",
         wordWrap: { width: (left ? this.leftCols : this.rightCols) * TILE - 24 }
       }).setOrigin(0.5).setAlpha(0).setDepth(16);
       if (mirrored) t.setScale(-1, 1);
 
       // A soft patch of mist behind the words.
-      const mist = this.add.rectangle(cx, cy, t.width + 36, t.height + 18, 0xEAE4D6, 0.10)
-        .setAlpha(0).setDepth(15);
+      const mist = this.add.graphics().setAlpha(0).setDepth(15);
+      mist.fillStyle(0xF0E6D2, 0.10).fillRoundedRect(cx - t.width / 2 - 20, cy - t.height / 2 - 10, t.width + 40, t.height + 20, 14);
 
       this.textSlots[side] = [t, mist];
       fx("onMoment", "text", null);
@@ -478,7 +546,7 @@
       this.tweens.killTweensOf(this.keysText);
       this.keysText.setColor(COLORS.silver).setAlpha(1);
       this.tweens.add({ targets: this.keysText, alpha: 0.4, duration: 350, yoyo: true, repeat: 1,
-        onComplete: () => this.keysText.setColor("#B8BCC8").setAlpha(1) });
+        onComplete: () => this.keysText.setColor(COLORS.dim).setAlpha(1) });
     }
 
     // Go to the next level with state.carry. When the act changes, its story card comes first.
@@ -501,8 +569,9 @@
     constructor() { super("End"); }
     create(data) {
       const msg = data.ending ? "Ending: " + data.ending : "No more levels yet";
-      this.add.text(W / 2, H / 2 - 20, msg, { fontFamily: "monospace", fontSize: "24px", color: COLORS.light }).setOrigin(0.5);
-      this.add.text(W / 2, H / 2 + 24, "Press Enter for the title", { fontFamily: "monospace", fontSize: "16px", color: "#B8BCC8" }).setOrigin(0.5);
+      this.cameras.main.setBackgroundColor(COLORS.bg);
+      this.add.text(W / 2, H / 2 - 20, msg, { fontFamily: STORY_FONT, fontSize: "28px", color: COLORS.light }).setOrigin(0.5);
+      this.add.text(W / 2, H / 2 + 28, "Press Enter for the title", { fontFamily: UI_FONT, fontSize: "16px", color: COLORS.dim }).setOrigin(0.5);
       this.input.keyboard.once("keydown-ENTER", () => this.scene.start("Title"));
     }
   }
@@ -512,8 +581,9 @@
     parent: "game",
     width: W,
     height: H,
-    backgroundColor: "#11141C",
-    pixelArt: true,
+    backgroundColor: "#141526",
+    pixelArt: false,      // art change: smooth images
+    antialias: true,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
     scene: [BootScene, TitleScene, StoryScene, LevelScene, EndScene]
   });

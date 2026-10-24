@@ -15,6 +15,9 @@
   const BAR = 40;           // top and bottom bar height
   const SLIDE_MS = 120;
 
+  // TEMPORARY test keys (remove in B9): 1 = sample Act 3 HUD, 2 = swap scene, 3 = control card.
+  const TEST_KEYS = true;
+
   // Art change palette. "silver" is the cool colour (shimmer, cracks, misty messages).
   const COLORS = {
     bg: 0x141526, bgCss: "#141526", floor: 0x3A2C3F, wall: 0x3B5560,
@@ -211,6 +214,14 @@
       this.busy = false;     // an animation is playing
       this.locked = false;   // v3: won or failed, waiting for the next load
       this.doorSprites = [];
+      this.footprints = [];
+      this.testHud = null;   // sample HUD values from test key 1
+      this.cardShown = !!data.cardShown;
+      // Phaser reuses this scene object, so reset per-level flags every time.
+      this.cardOpen = false;
+      this.forceSwap = false;
+      this.shimmerHinted = false;
+      this.textSlots = {};
 
       // A restart arrives with the state (and events) that RESTART returned.
       // Otherwise this is a fresh level.
@@ -231,10 +242,19 @@
       fx("onLevelStart", this.level.number, this.level.act);
       fx("setCracks", this.state.cracks || 0);
 
+      this.drawHud();
       this.setupKeys();
+
+      // Level 9: the new-controls card, once per visit (not again after a restart).
+      if (this.level.controlCard && !this.cardShown) this.openControlCard();
 
       this.busy = true;
       this.playEvents(opening).then(() => this.afterEvents());
+    }
+
+    // Sam's eye follows Sam, even while he slides.
+    update() {
+      if (this.eye && this.leftBody) this.eye.setPosition(this.leftBody.x, this.leftBody.y - 46);
     }
 
     // ---- layout and drawing
@@ -349,14 +369,92 @@
 
     updateBars() {
       let s;
-      if (this.act3) {
-        s = "Space follow · Shift resist · Arrows break · Z undo · R restart";
-        if (this.state.will !== null && this.state.will !== undefined) s += "   Will: " + this.state.will;
+      if (this.act3 || this.testHud) {
+        s = "Space Follow · Shift Resist · Arrow Break · Z undo · R restart";
       } else {
         s = "Arrows move · Z undo · R restart";
         if (this.state.look) s += " · Space look";
       }
       this.keysText.setText(s);
+    }
+
+    // ---- Act 3 HUD: Will, Sam's footprints (the glowing one is the frame turn), Sam's eye
+    drawHud() {
+      this.willText = this.add.text(W - 16, BAR / 2, "", {
+        fontFamily: UI_FONT, fontSize: "17px", color: COLORS.light, fontStyle: "bold"
+      }).setOrigin(1, 0.5).setDepth(21);
+
+      this.eye = this.add.container(0, 0).setDepth(12).setVisible(false);
+      const g = this.add.graphics();
+      g.fillStyle(COLORS.bar, 0.85).fillRoundedRect(-22, -14, 44, 28, 14);
+      g.fillStyle(0xF0E6D2, 1).fillEllipse(0, 0, 30, 16);
+      g.fillStyle(0x141526, 1).fillCircle(0, 0, 5);
+      this.eye.add(g);
+      this.tweens.add({ targets: g, y: -3, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+
+      this.updateHud();
+    }
+
+    hudValues() { return this.testHud || this.state; }
+
+    updateHud() {
+      const v = this.hudValues();
+      const show = this.act3 || !!this.testHud;
+
+      const will = v.will;
+      this.willText.setVisible(show && will !== null && will !== undefined);
+      if (this.willText.visible) this.willText.setText("Will  " + will);
+
+      // Footprints: faint pairs of marks on Sam's next steps.
+      this.footprints.forEach(o => { this.tweens.killTweensOf(o); o.destroy(); });
+      this.footprints = [];
+      if (show) {
+        (v.footprints || []).forEach(f => {
+          const p = this.tilePos("left", f.x, f.y);
+          const color = f.glow ? 0xF2A65A : 0xF0E6D2;
+          const alpha = f.glow ? 0.9 : 0.28;
+          const a = this.add.ellipse(p.x - 9, p.y + 4, 11, 18, color, alpha).setDepth(6);
+          const b = this.add.ellipse(p.x + 9, p.y - 6, 11, 18, color, alpha).setDepth(6);
+          this.footprints.push(a, b);
+          if (f.glow) {
+            const halo = this.add.circle(p.x, p.y, 26, 0xF2A65A, 0.18).setDepth(5);
+            this.footprints.push(halo);
+            this.tweens.add({ targets: [a, b, halo], alpha: { from: alpha, to: 0.35 }, duration: 900,
+              yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+          }
+        });
+      }
+
+      this.eye.setVisible(show && !!v.samLooking);
+    }
+
+    // Level 12 warning (moment "strain"): the Will counter turns warm and pulses gently.
+    pulseWill() {
+      if (!this.willText.visible) return;
+      this.tweens.killTweensOf(this.willText);
+      this.willText.setColor(COLORS.warm).setScale(1);
+      this.tweens.add({ targets: this.willText, scale: 1.18, duration: 450, yoyo: true, repeat: 3,
+        ease: "Sine.easeInOut", onComplete: () => this.willText.setScale(1) });
+    }
+
+    // ---- Level 9 control card: full screen, stays until Space.
+    openControlCard() {
+      this.cardOpen = true;
+      const bg = this.add.rectangle(W / 2, H / 2, W, H, COLORS.bg, 0.97).setDepth(40);
+      const t = this.add.text(W / 2, H / 2, storyText("controlCard"), {
+        fontFamily: STORY_FONT, fontSize: "24px", color: COLORS.light, align: "center",
+        lineSpacing: 10, wordWrap: { width: 780 }
+      }).setOrigin(0.5).setDepth(41).setAlpha(0);
+      this.tweens.add({ targets: t, alpha: 1, duration: 800 });
+      this.controlCardObjects = [bg, t];
+    }
+
+    closeControlCard() {
+      this.cardOpen = false;
+      this.cardShown = true;
+      this.tweens.add({ targets: this.controlCardObjects, alpha: 0, duration: 400,
+        onComplete: () => this.controlCardObjects.forEach(o => o.destroy()) });
+      this.pulseKeys();   // the Space hint pulses for the first 3 turns
     }
 
     refreshDoors() {
@@ -372,6 +470,7 @@
       this.rightBody.setPosition(r.x, r.y);
       this.refreshDoors();
       this.updateBars();
+      this.updateHud();
       fx("setCracks", this.state.cracks || 0);
     }
 
@@ -386,11 +485,37 @@
       this.input.keyboard.on("keydown", e => {
         if (e.repeat) return;
         if (e.code === "KeyM") { this.sound.mute = !this.sound.mute; return; }
+        if (this.cardOpen) { if (e.code === "Space") this.closeControlCard(); return; }
+        if (TEST_KEYS && this.testKey(e.code)) return;
         let input = map[e.code];
         if (e.code === "Space") input = this.act3 ? "FOLLOW" : (this.state.look ? "LOOK" : null);
         if (e.code === "ShiftLeft" || e.code === "ShiftRight") input = this.act3 ? "RESIST" : null;
         if (input) this.send(input);
       });
+    }
+
+    // TEMPORARY (remove in B9). Lets B see Act 3 and the swap before A's levels exist.
+    testKey(code) {
+      if (this.busy || this.locked) return false;
+      if (code === "Digit1") {
+        const p = this.state.person;
+        this.testHud = this.testHud ? null : {
+          will: 3, samLooking: true,
+          footprints: [{ x: p.x + 1, y: p.y, glow: false }, { x: p.x + 2, y: p.y, glow: false }, { x: p.x + 3, y: p.y, glow: true }]
+        };
+        this.updateBars();
+        this.updateHud();
+        if (this.testHud) this.time.delayedCall(600, () => this.pulseWill());
+        return true;
+      }
+      if (code === "Digit2") {
+        this.forceSwap = true;
+        this.busy = true;
+        this.playEvents([{ type: "crack", cracks: 3 }, { type: "glassBreak" }, { type: "swap" }]);
+        return true;
+      }
+      if (code === "Digit3") { this.openControlCard(); return true; }
+      return false;
     }
 
     send(input) {
@@ -415,12 +540,14 @@
     // A restart rebuilds the scene from the RESTART state, so Effects.setup runs again.
     restartWith(res) {
       this.locked = true;
-      this.scene.restart({ index: this.index, state: res.state, events: res.events || [] });
+      this.scene.restart({ index: this.index, state: res.state, events: res.events || [], cardShown: this.cardShown });
     }
 
     afterEvents() {
       this.busy = false;
       this.updateBars();
+      this.updateHud();
+      if (this.level.controlCard && this.cardShown && (this.state.turn || 0) < 3 && this.state.turn > 0) this.pulseKeys();
       // v3: lock keys once the level is won or failed.
       if (this.state.status === "won" || this.state.status === "failed") this.locked = true;
     }
@@ -474,11 +601,21 @@
         case "glassBreak":
           fx("onGlassBreak");
           fx("setCracks", 0);
+          // Level 8's smash: TOGETHER appears on the mirror side, when it's already too late.
+          if (this.level.swap || this.forceSwap) return this.showTogether();
           return this.wait(400);
         case "moment":
           fx("onMoment", ev.kind, this.sprite(ev.who || "reflection"));
           // A warned disobey is coming: draw the eye to the Look key.
-          if (ev.kind === "shimmer" && this.state.look && !this.act3) this.pulseKeys();
+          if (ev.kind === "shimmer" && this.state.look && !this.act3) {
+            this.pulseKeys();
+            // The first warning in a level also says what to do, softly.
+            if (!this.shimmerHinted) {
+              this.shimmerHinted = true;
+              this.showHint("The reflection shimmers…  Space to look");
+            }
+          }
+          if (ev.kind === "strain") this.pulseWill();
           return this.wait(250);
         case "text":
           return this.showText(ev.words, ev.side, ev.mirrored);
@@ -508,6 +645,18 @@
       }
     }
 
+    // TOGETHER fades onto the mirror side for about 2 seconds.
+    showTogether() {
+      const cx = this.rightX + this.rightCols * TILE / 2;
+      const cy = this.top + this.rows * TILE / 2;
+      const t = this.add.text(cx, cy, storyText("together") || "TOGETHER", {
+        fontFamily: STORY_FONT, fontSize: "44px", color: COLORS.silver
+      }).setOrigin(0.5).setScale(-1, 1).setAlpha(0).setDepth(30);
+      fx("onMoment", "text", null);
+      return this.tween({ targets: t, alpha: 1, duration: 600, hold: 1200, yoyo: true })
+        .then(() => t.destroy());
+    }
+
     // Writing fades onto misty glass on that side. Mirrored text is flipped left-to-right.
     // Two messages on different sides can show at once (Act 3).
     showText(words, side, mirrored) {
@@ -531,7 +680,7 @@
       fx("onMoment", "text", null);
       this.tweens.add({ targets: [t, mist], alpha: 1, duration: 700, hold: 3000, yoyo: true,
         onComplete: () => { t.destroy(); mist.destroy(); } });
-      return this.wait(700);
+      return this.wait(60);   // don't hold up the player's next key
     }
 
     // Soft text just above the bottom bar, like "Maybe let it."
@@ -553,12 +702,11 @@
     nextLevel(cardsOverride) {
       const carry = this.state.carry;
       const next = this.levels[this.index + 1];
-      if (!next) { this.scene.start("End", {}); return; }
 
       let cards = cardsOverride || [];
-      if (!cardsOverride && next.act !== this.level.act) cards = ["act" + next.act];
+      if (!cardsOverride && next && next.act !== this.level.act) cards = ["act" + next.act];
 
-      const target = { scene: "Level", data: { index: this.index + 1, carry } };
+      const target = next ? { scene: "Level", data: { index: this.index + 1, carry } } : { scene: "End", data: {} };
       if (cards.length) this.scene.start("Story", { cards, next: target });
       else this.scene.start(target.scene, target.data);
     }

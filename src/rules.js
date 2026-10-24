@@ -6,7 +6,9 @@
 //          slip, lag and the Level 5 undo lock.
 // Step A7: Act 3 (Sam's route, Follow/Resist/Break, Will, Sam's Look, footprints,
 //          Theo's message) and the Level 8 smash and swap.
-// Still to come: A10 Level 12 endings.
+// Step A10: Level 12 (final: true): the five ending checks, ONE MORE + strain at
+//          4 cracks, "Sam is about to leave...", and the Mercy TOGETHER text.
+// Team changes after v3: full-opposite mirror; state.glitches; shimmer carries dir.
 const Rules = (function () {
 
   const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
@@ -259,7 +261,8 @@ const Rules = (function () {
       _route: String(level.samRoute || "").trim().split(/\s+/).filter(Boolean),
       _samLooks: (level.samLooks || []).slice(),
       _frameTurn: level.frameTurn || null,
-      _message: level.message || null
+      _message: level.message || null,
+      _willStart: act === 3 ? (level.will || 0) : 0
     };
     state._history = [];
     updateDoors(state, null);   // in case someone starts on a plate
@@ -403,10 +406,22 @@ const Rules = (function () {
       const shimmer = { type: "moment", kind: "shimmer", who: "reflection" };
       if (choice === "break") shimmer.dir = input;
       events.push(shimmer);
-      addCrack(state, events);
+      if (state._final) {
+        // Level 12: the 5th crack is an ending, checked below, not an automatic break.
+        state.cracks += 1;
+        events.push({ type: "crack", cracks: state.cracks });
+        if (state.cracks === 4) {
+          events.push({ type: "text", words: "ONE MORE", side: "right", mirrored: true });
+          events.push({ type: "moment", kind: "strain", who: "reflection" });
+        }
+      } else {
+        addCrack(state, events);
+      }
     }
 
-    if (onEither(state, "^")) {
+    if (state._final) {
+      finalChecks(state, events, disobeyed);
+    } else if (onEither(state, "^")) {
       state.status = "failed";
       events.push({ type: "fail", reason: "spikes" });
     } else if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
@@ -414,7 +429,7 @@ const Rules = (function () {
       state.status = "failed";
       events.push({ type: "fail", reason: "seen" });
     } else if (state.turn >= state._route.length) {
-      // Sam's route is over. (Level 12's endings replace this in A10.)
+      // Sam's route is over.
       if (onTile(state._right, state.reflection, "G")) {
         state.status = "won";
         if (state._message) {
@@ -433,9 +448,51 @@ const Rules = (function () {
       fireMatching(state, events, ev => ev.turn === state.turn || standsOn(state, ev.at));
     }
 
+    if (state._final && state.status === "playing") {
+      // Mercy remembered: TOGETHER just before the glowing footprint.
+      if (state.carry.mercy >= 1 && state._frameTurn && state.turn === state._frameTurn - 1) {
+        events.push({ type: "text", words: "TOGETHER", side: "right", mirrored: true });
+      }
+      if (state.turn === state._route.length - 1) {
+        events.push({ type: "hint", words: "Sam is about to leave..." });
+      }
+    }
+
     updateSamView(state);
     state.carry.cracks = state.cracks;
     return { state, events };
+  }
+
+  // Level 12, every turn after moves and cracks. First match wins.
+  function finalChecks(state, events, disobeyed) {
+    const spent = state._willStart - state.will;
+    const routeOver = state.turn >= state._route.length;
+    const end = which => {
+      state.status = "won";
+      state.ending = which;
+      events.push({ type: "ending", which: which, mercy: state.carry.mercy });
+    };
+    if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
+      // 1. Sam sees Theo disobey.
+      state.status = "failed";
+      events.push({ type: "fail", reason: "seen" });
+    } else if (state.cracks >= 5) {
+      // 2. The 5th Will is spent: the glass breaks. Take Their Place.
+      breakGlass(state, events);
+      end("take");
+    } else if (state.turn === state._frameTurn &&
+               onTile(state._left, state.person, "F") && onTile(state._right, state.reflection, "F")) {
+      // 3. Both touch the frame while the glass is unbroken. Break It Together.
+      end("break");
+    } else if (routeOver && spent === 0) {
+      // 4. Theo never pushed. Stay Behind.
+      end("stay");
+    } else if (routeOver) {
+      // 5. Some Will spent, no frame: no ending tonight.
+      events.push({ type: "text", words: "NOT TONIGHT", side: "right", mirrored: true });
+      state.status = "failed";
+      events.push({ type: "fail", reason: "not-tonight" });
+    }
   }
 
   function step(oldState, input) {

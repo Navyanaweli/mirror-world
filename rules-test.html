@@ -324,7 +324,30 @@
     }
   ];
 
-  const VALID_INPUTS = ["U", "D", "L", "R", "LOOK", "FOLLOW", "RESIST", "UNDO", "RESTART"];
+  // Extra checks run on real levels (kept here so the level files stay clean).
+  const EXTRA_CHECKS = {
+    12: [
+      { about: "Sam's note opens the level", inputs: "", want: { events: { "text:IS SOMEONE THERE?": 1 } } },
+      { about: "the frame step glows in the footprints", inputs: "FOLLOW FOLLOW FOLLOW FOLLOW",
+        want: { footprints: [{ x: 5, y: 2, glow: false }, { x: 5, y: 3, glow: false }, { x: 4, y: 3, glow: true }] } },
+      { about: "disobey while Sam looks: seen", inputs: "FOLLOW FOLLOW RESIST", want: { status: "failed", events: { "fail:seen": 1 } } },
+      { about: "1-4 Will, no frame: NOT TONIGHT, then fail", inputs: "RESIST FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW",
+        want: { status: "failed", events: { "text:NOT TONIGHT": 1, "fail:not-tonight": 1 } } },
+      { about: "the hint one turn before Sam leaves", inputs: "FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW FOLLOW",
+        want: { events: { "hint:Sam is about to leave...": 1 } } },
+      { about: "4 cracks: ONE MORE and strain", inputs: "RESIST RESIST FOLLOW RESIST RESIST",
+        want: { cracks: 4, events: { "text:ONE MORE": 1, "moment:strain": 1 } } },
+      { about: "Take: glassBreak then ending, cracks back to 0", inputs: "RESIST RESIST FOLLOW RESIST RESIST RESIST",
+        want: { status: "won", ending: "take", cracks: 0, events: { "glassBreak": 1, "ending:take": 1 } } },
+      { about: "Mercy 1+: TOGETHER before the frame turn", carry: { cracks: 0, mercy: 2, undoLockUsed: true },
+        inputs: "D FOLLOW FOLLOW FOLLOW D R", want: { events: { "text:TOGETHER": 1 } } },
+      { about: "Mercy 0: no TOGETHER", inputs: "D FOLLOW FOLLOW FOLLOW D R", want: { events: { "text:TOGETHER": 0 } } },
+      { about: "the ending carries Mercy", carry: { cracks: 0, mercy: 2, undoLockUsed: true },
+        inputs: "D FOLLOW FOLLOW FOLLOW D R FOLLOW", want: { ending: "break", mercy: 2 } }
+    ]
+  };
+
+  const VALID_INPUTS =["U", "D", "L", "R", "LOOK", "FOLLOW", "RESIST", "UNDO", "RESTART"];
   const $ = id => document.getElementById(id);
 
   // Real levels sorted by number, then the test rooms.
@@ -558,7 +581,7 @@
 
   // "crack:1", "moment:shimmer", "text:IT REMEMBERS", "fail:spikes", "door:A", "win" ...
   function eventKey(e) {
-    const detail = [e.kind, e.reason, e.words, e.cracks, e.letter].find(v => v !== undefined);
+    const detail = [e.kind, e.reason, e.words, e.cracks, e.letter, e.which].find(v => v !== undefined);
     return detail === undefined ? e.type : e.type + ":" + detail;
   }
 
@@ -605,6 +628,18 @@
   function doCheckAll() {
     const lines = [{ text: "Check all levels" }];
     let passed = 0, failed = 0;
+    function runChecks(level) {
+      const extra = level.number > 900 ? [] : (EXTRA_CHECKS[level.number] || []);
+      (level.checks || []).concat(extra).forEach(check => {
+        const problems = runCheck(level, check);
+        const ok = problems.length === 0;
+        ok ? passed++ : failed++;
+        lines.push({
+          text: "  " + (ok ? "PASS " : "FAIL ") + check.about + "  [" + check.inputs + "]" + (ok ? "" : ": " + problems.join("; ")),
+          cls: ok ? "pass" : "fail"
+        });
+      });
+    }
     allLevels.forEach(level => {
       const label = levelLabel(level);
       if (level.final || level.solutions) {
@@ -621,6 +656,7 @@
           r.ok ? passed++ : failed++;
           lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + " [" + key + "]: " + r.why, cls: r.ok ? "pass" : "fail" });
         });
+        runChecks(level);
         return;
       }
       if (!level.solution) {
@@ -631,16 +667,7 @@
       const r = judge(play(level, undefined, level.solution));
       r.ok ? passed++ : failed++;
       lines.push({ text: (r.ok ? "PASS " : "FAIL ") + label + ": " + r.why, cls: r.ok ? "pass" : "fail" });
-
-      (level.checks || []).forEach(check => {
-        const problems = runCheck(level, check);
-        const ok = problems.length === 0;
-        ok ? passed++ : failed++;
-        lines.push({
-          text: "  " + (ok ? "PASS " : "FAIL ") + check.about + "  [" + check.inputs + "]" + (ok ? "" : ": " + problems.join("; ")),
-          cls: ok ? "pass" : "fail"
-        });
-      });
+      runChecks(level);
     });
     lines.push({ text: "" });
     lines.push({ text: passed + " passed, " + failed + " failed", cls: failed ? "fail" : "pass" });

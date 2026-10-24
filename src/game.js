@@ -15,7 +15,8 @@
   const BAR = 40;           // top and bottom bar height
   const SLIDE_MS = 120;
 
-  // TEMPORARY test keys (remove in B9): 1 = sample Act 3 HUD, 2 = swap scene, 3 = control card.
+  // TEMPORARY test keys (remove in B9): 1 = sample Act 3 HUD, 2 = swap scene, 3 = control card,
+  // 4 = Take Their Place, 5 = Break It Together with Mercy 2, 6 = Stay Behind.
   const TEST_KEYS = true;
 
   // Art change palette. "silver" is the cool colour (shimmer, cracks, misty messages).
@@ -134,9 +135,11 @@
   class TitleScene extends Phaser.Scene {
     constructor() { super("Title"); }
 
-    create() {
+    create(data) {
       this.cameras.main.setBackgroundColor(COLORS.bg);
       const hasArt = this.textures.exists("title");
+      // After Take Their Place the cycle repeats: Sam is the one behind the glass now.
+      const afterTake = !!(data && data.after === "take");
       if (hasArt) {
         this.add.image(W / 2, H / 2, "title").setDisplaySize(W, H);
       } else {
@@ -145,7 +148,7 @@
         }).setOrigin(0.5);
       }
 
-      const prompt = this.add.text(W / 2, H - 150, "Press Enter", {
+      const prompt = this.add.text(W / 2, H - 150, afterTake ? "New Game — Sam" : "Press Enter", {
         fontFamily: UI_FONT, fontSize: "20px", color: COLORS.silver
       }).setOrigin(0.5);
       this.tweens.add({ targets: prompt, alpha: 0.35, duration: 1100, yoyo: true, repeat: -1 });
@@ -515,11 +518,15 @@
         return true;
       }
       if (code === "Digit3") { this.openControlCard(); return true; }
+      if (code === "Digit4") { this.showEnding("take", 0); return true; }
+      if (code === "Digit5") { this.showEnding("break", 2); return true; }
+      if (code === "Digit6") { this.showEnding("stay", 1); return true; }
       return false;
     }
 
     send(input) {
       if (this.busy || this.locked) return;
+      this.textThisTurn = false;
       const res = Rules.step(this.state, input);
       if (!res || !res.state) return;
 
@@ -607,14 +614,7 @@
         case "moment":
           fx("onMoment", ev.kind, this.sprite(ev.who || "reflection"));
           // A warned disobey is coming: draw the eye to the Look key.
-          if (ev.kind === "shimmer" && this.state.look && !this.act3) {
-            this.pulseKeys();
-            // The first warning in a level also says what to do, softly.
-            if (!this.shimmerHinted) {
-              this.shimmerHinted = true;
-              this.showHint("The reflection shimmers…  Space to look");
-            }
-          }
+          if (ev.kind === "shimmer" && this.state.look && !this.act3) this.pulseKeys();
           if (ev.kind === "strain") this.pulseWill();
           return this.wait(250);
         case "text":
@@ -631,15 +631,15 @@
         case "win":
           this.locked = true;
           fx("onWin");
-          return this.wait(800).then(() => this.nextLevel());
+          // Give a message that just appeared (like COME UPSTAIRS) time to be read.
+          return this.wait(this.textThisTurn ? 2400 : 800).then(() => this.nextLevel());
         case "swap":
           // Level 8: the swap card, then Act 3's card, then Level 9. (B6 adds TOGETHER and the control card.)
           this.locked = true;
           return this.wait(800).then(() => this.nextLevel(["swap", "act3"]));
         case "ending":
-          // B7 adds the ending screens.
           this.locked = true;
-          return this.wait(800).then(() => this.scene.start("End", { ending: ev.which, mercy: ev.mercy }));
+          return this.wait(1200).then(() => this.showEnding(ev.which, ev.mercy));
         default:
           return;
       }
@@ -677,6 +677,7 @@
       mist.fillStyle(0xF0E6D2, 0.10).fillRoundedRect(cx - t.width / 2 - 20, cy - t.height / 2 - 10, t.width + 40, t.height + 20, 14);
 
       this.textSlots[side] = [t, mist];
+      this.textThisTurn = true;
       fx("onMoment", "text", null);
       this.tweens.add({ targets: [t, mist], alpha: 1, duration: 700, hold: 3000, yoyo: true,
         onComplete: () => { t.destroy(); mist.destroy(); } });
@@ -696,6 +697,18 @@
       this.keysText.setColor(COLORS.silver).setAlpha(1);
       this.tweens.add({ targets: this.keysText, alpha: 0.4, duration: 350, yoyo: true, repeat: 1,
         onComplete: () => this.keysText.setColor(COLORS.dim).setAlpha(1) });
+    }
+
+    // An ending's screen, then (Break It Together with Mercy 2) Mara's nod, then the credits,
+    // then the title. After Take Their Place the title says "New Game — Sam".
+    showEnding(which, mercy) {
+      this.locked = true;
+      const card = { take: "endingTake", break: "endingBreak", stay: "endingStay" }[which];
+      const cards = [];
+      if (card) cards.push(card);
+      if (which === "break" && mercy === 2) cards.push("maraNod");
+      cards.push("credits");
+      this.scene.start("Story", { cards, next: { scene: "Title", data: { after: which } } });
     }
 
     // Go to the next level with state.carry. When the act changes, its story card comes first.

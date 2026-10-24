@@ -29,7 +29,10 @@
   const IMAGES = ["theo", "reflection", "sam", "floor", "wall", "goal", "plate",
     "door-closed", "door-open", "spikes", "frame"];
   const SOUNDS = [["step", "wav"], ["crack", "wav"], ["break", "wav"], ["moment", "wav"],
-    ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"]];
+    ["win", "wav"], ["theme-theo", "mp3"], ["theme-sam", "mp3"],
+    // C's whispered voice lines (optional; effects.js stays quiet if one is missing)
+    ["voice-im-sorry", "mp3"], ["voice-let-me-out", "mp3"], ["voice-it-has-to-be-someone", "mp3"],
+    ["voice-together", "mp3"], ["voice-one-more", "mp3"], ["voice-is-someone-there", "mp3"]];
 
   // Shapes drawn in code when an image file is missing (128x128, smooth).
   function makeFallback(scene, key) {
@@ -714,7 +717,7 @@
       const t = this.add.text(cx, cy, storyText("together") || "TOGETHER", {
         fontFamily: STORY_FONT, fontSize: "44px", color: COLORS.silver
       }).setOrigin(0.5).setScale(-1, 1).setAlpha(0).setDepth(30);
-      fx("onMoment", "text", null);
+      fx("onMoment", "text", null, "TOGETHER");
       return this.tween({ targets: t, alpha: 1, duration: 600, hold: 1200, yoyo: true })
         .then(() => t.destroy());
     }
@@ -740,7 +743,7 @@
 
       this.textSlots[side] = [t, mist];
       this.textThisTurn = true;
-      fx("onMoment", "text", null);
+      fx("onMoment", "text", null, words);   // C picks the voice line from the words
       this.tweens.add({ targets: [t, mist], alpha: 1, duration: 700, hold: 3000, yoyo: true,
         onComplete: () => { t.destroy(); mist.destroy(); } });
       return this.wait(60);   // don't hold up the player's next key

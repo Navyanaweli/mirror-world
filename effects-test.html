@@ -80,7 +80,9 @@ const COLS = 7, ROWS = 5;
 const IMAGES = ['theo', 'reflection', 'sam', 'floor', 'wall', 'goal', 'plate',
                 'door-closed', 'door-open', 'spikes', 'frame'];
 const SOUNDS = ['step.wav', 'crack.wav', 'break.wav', 'moment.wav', 'win.wav',
-                'theme-theo.mp3', 'theme-sam.mp3'];
+                'theme-theo.mp3', 'theme-sam.mp3', 'text.wav', 'card.wav',
+                'voice-im-sorry.mp3', 'voice-let-me-out.mp3', 'voice-it-has-to-be-someone.mp3',
+                'voice-together.mp3', 'voice-one-more.mp3', 'voice-is-someone-there.mp3'];
 const CHARACTERS = ['theo', 'reflection', 'sam'];
 const FALLBACK = {
   theo: '#E9B872', reflection: '#9FD6E0', sam: '#EAE4D6',
@@ -323,6 +325,14 @@ $('btnWin').onclick = () => call('onWin');
     if (kind === 'text') s.showSampleText();
     call('onMoment', kind, body);
   };
+  $('momentButtons').appendChild(b);
+});
+
+// Voice lines with misty text
+["I'M SORRY", 'LET ME OUT', 'IT HAS TO BE SOMEONE', 'TOGETHER', 'ONE MORE', 'IS SOMEONE THERE?'].forEach(words => {
+  const b = document.createElement('button');
+  b.textContent = 'Text: ' + words;
+  b.onclick = () => { const s = scene(); if (s) call('onMoment', 'text', null, words); };
   $('momentButtons').appendChild(b);
 });
 

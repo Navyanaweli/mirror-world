@@ -4,7 +4,9 @@
 // Step A3: plates, doors and spikes (v3: no boxes).
 // Step A4: the glass (cracks, glassBreak), tile triggers, disobeys, Look, Mercy,
 //          slip, lag and the Level 5 undo lock.
-// Still to come: A7 Act 3 (Follow/Resist/Break, Level 8 swap), A10 Level 12 endings.
+// Step A7: Act 3 (Sam's route, Follow/Resist/Break, Will, Sam's Look, footprints,
+//          Theo's message) and the Level 8 smash and swap.
+// Still to come: A10 Level 12 endings.
 const Rules = (function () {
 
   const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
@@ -145,6 +147,32 @@ const Rules = (function () {
     return body.x === at.x && body.y === at.y;
   }
 
+  // ---------- Act 3 helpers ----------
+
+  // Where a body ends up after one step, or null if something blocks it.
+  function stepTo(state, rows, body, dir) {
+    if (!dir || !DIRS[dir]) return null;
+    const to = { x: body.x + DIRS[dir][0], y: body.y + DIRS[dir][1] };
+    return isSolid(state, tileAt(rows, to.x, to.y)) ? null : to;
+  }
+
+  // samLooking (the eye icon) and Sam's next 3 footprints, for B to draw.
+  function updateSamView(state) {
+    if (state.status !== "playing") {
+      state.samLooking = false;
+      state.footprints = [];
+      return;
+    }
+    state.samLooking = state._samLooks.indexOf(state.turn + 1) !== -1;
+    const steps = [];
+    let pos = { x: state.person.x, y: state.person.y };
+    for (let t = state.turn + 1; t <= state.turn + 3 && t <= state._route.length; t++) {
+      pos = stepTo(state, state._left, pos, state._route[t - 1]) || pos;
+      steps.push({ x: pos.x, y: pos.y, glow: t === state._frameTurn });
+    }
+    state.footprints = steps;
+  }
+
   // ---------- State helpers ----------
 
   // A deep copy of the state for the history: everything except the history itself.
@@ -209,11 +237,18 @@ const Rules = (function () {
       _lag: level.lag || 0,
       _moves: [],                 // Theo's move each turn (null = stood still), for lag
       _undoFloor: null,           // UNDO can't go below this history length
-      _lookedAtRequired: false    // Look cancelled a required disobey: hint after RESTART
+      _lookedAtRequired: false,   // Look cancelled a required disobey: hint after RESTART
+      _swap: level.swap === true, // Level 8: winning smashes the glass
+      _final: level.final === true,
+      _route: String(level.samRoute || "").trim().split(/\s+/).filter(Boolean),
+      _samLooks: (level.samLooks || []).slice(),
+      _frameTurn: level.frameTurn || null,
+      _message: level.message || null
     };
     state._history = [];
     updateDoors(state, null);   // in case someone starts on a plate
     fireMatching(state, state.startEvents, ev => ev.at === "start");
+    if (act === 3) updateSamView(state);
     state._start = snapshot(state);
     return state;
   }
@@ -297,13 +332,88 @@ const Rules = (function () {
     } else if (onTile(state._left, state.person, "G") && onTile(state._right, state.reflection, "G")) {
       // Win: both stand on their goal at the same moment.
       state.status = "won";
-      events.push({ type: "win" });
+      if (state._swap) {
+        // Level 8: Theo smashes the mirror and they swap places.
+        breakGlass(state, events);
+        events.push({ type: "swap" });
+      } else {
+        events.push({ type: "win" });
+      }
     }
 
     if (state.status !== "failed") {
       fireMatching(state, events, ev => standsOn(state, ev.at));
     }
 
+    state.carry.cracks = state.cracks;
+    return { state, events };
+  }
+
+  // One turn in Act 3. Sam takes the next samRoute step whatever the input.
+  // Theo: FOLLOW mirrors Sam's step, RESIST stays still, an arrow is Break (his own way).
+  // Resist and Break cost 1 Will and add 1 crack; with 0 Will they act like Follow.
+  function takeAct3Turn(old, input) {
+    const state = restore(snapshot(old), old._start, old._history.concat([snapshot(old)]));
+    const events = [];
+    state.turn += 1;
+
+    const samDir = state._route[state.turn - 1] || null;
+    let choice = input === "RESIST" ? "resist" : (DIRS[input] ? "break" : "follow");
+    if (choice !== "follow" && state.will <= 0) choice = "follow";
+    const theoDir = choice === "follow" ? (samDir ? MIRROR[samDir] : null) : (choice === "break" ? input : null);
+
+    // Move both at once.
+    const moves = [
+      { who: "person", rows: state._left, dir: samDir },
+      { who: "reflection", rows: state._right, dir: theoDir }
+    ].filter(m => m.dir && DIRS[m.dir]);
+    moves.forEach(m => { m.to = stepTo(state, m.rows, state[m.who], m.dir); });
+    moves.forEach(m => {
+      if (m.to) {
+        state[m.who] = m.to;
+        events.push({ type: "move", who: m.who, to: { x: m.to.x, y: m.to.y } });
+      } else {
+        events.push({ type: "blocked", who: m.who });
+      }
+    });
+
+    updateDoors(state, events);
+
+    const disobeyed = choice !== "follow";
+    if (disobeyed) {
+      state.will -= 1;
+      events.push({ type: "moment", kind: "shimmer", who: "reflection" });
+      addCrack(state, events);
+    }
+
+    if (onEither(state, "^")) {
+      state.status = "failed";
+      events.push({ type: "fail", reason: "spikes" });
+    } else if (disobeyed && state._samLooks.indexOf(state.turn) !== -1) {
+      // Sam saw Theo disobey.
+      state.status = "failed";
+      events.push({ type: "fail", reason: "seen" });
+    } else if (state.turn >= state._route.length) {
+      // Sam's route is over. (Level 12's endings replace this in A10.)
+      if (onTile(state._right, state.reflection, "G")) {
+        state.status = "won";
+        if (state._message) {
+          // Theo writes it, then how Sam sees it.
+          events.push({ type: "text", words: state._message, side: "right", mirrored: false });
+          events.push({ type: "text", words: state._message, side: "left", mirrored: true });
+        }
+        events.push({ type: "win" });
+      } else {
+        state.status = "failed";
+        events.push({ type: "fail", reason: "route" });
+      }
+    }
+
+    if (state.status !== "failed") {
+      fireMatching(state, events, ev => ev.turn === state.turn || standsOn(state, ev.at));
+    }
+
+    updateSamView(state);
     state.carry.cracks = state.cracks;
     return { state, events };
   }
@@ -340,8 +450,10 @@ const Rules = (function () {
       return { state, events: [] };
     }
 
-    // Act 3 inputs (FOLLOW / RESIST / Break) arrive in A7.
-    if (oldState.act === 3) return unchanged(oldState);
+    if (oldState.act === 3) {
+      if (input === "FOLLOW" || input === "RESIST" || DIRS[input]) return takeAct3Turn(oldState, input);
+      return unchanged(oldState);   // LOOK isn't used in Act 3
+    }
 
     if (input === "LOOK") {
       if (!oldState.look) return unchanged(oldState);

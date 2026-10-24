@@ -61,7 +61,7 @@
       <div class="hint">Arrows/WASD move · Space = LOOK (Acts 1–2) / FOLLOW (Act 3) · Shift = RESIST · Z = UNDO · R = RESTART · Enter = reload level (page only)</div>
       <h2>Board</h2>
       <pre id="board"></pre>
-      <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame</div>
+      <div class="hint">T = person · R = reflection · G goal · # wall · / open door · a,b plates · A,B closed doors · ^ spikes · F frame · o Sam's next steps (* = frame turn)</div>
       <h2>State</h2>
       <pre id="info"></pre>
       <h2>Last events</h2>
@@ -264,6 +264,54 @@
         { about: "the text fires once, and again after undo", inputs: "L L UNDO L", want: { events: { "text:HELLO": 2 } } },
         { about: "RESTART plays the start events again", inputs: "L RESTART", want: { slipTurns: 2, events: { "moment:slip": 2 } } }
       ]
+    },
+    {
+      number: 911, name: "Test: Level 8 swap", act: 2, look: true, swap: true,
+      // Winning smashes the glass: glassBreak then swap, instead of win. Cracks go to 0.
+      map: [
+        "#######|#######",
+        "#T...G#|#G...R#",
+        "#######|#######"
+      ],
+      events: [],
+      solution: "R R R R",
+      checks: [
+        { about: "glassBreak then swap, no win, cracks 0", carry: { cracks: 3, mercy: 1, undoLockUsed: true }, inputs: "R R R R",
+          want: { status: "won", cracks: 0, mercy: 1, events: { "glassBreak": 1, "swap": 1, "win": 0 } } }
+      ]
+    },
+    {
+      number: 912, name: "Test: Act 3 follow, resist, break", act: 3, will: 2,
+      // Sam (left) walks R R R R. Theo (right) must end on G. Sam looks on turn 3.
+      map: [
+        "#######|#######",
+        "#.....#|#.....#",
+        "#T....#|#..G.R#",
+        "#######|#######"
+      ],
+      samRoute: "R R R R",
+      samLooks: [3],
+      message: "HELLO SAM",
+      events: [
+        { at: "start", do: "text", words: "IS SOMEONE THERE?", side: "left", mirrored: true },
+        { turn: 2, do: "blink" }
+      ],
+      solution: "FOLLOW FOLLOW FOLLOW R",
+      checks: [
+        { about: "footprints and eye at the start", inputs: "",
+          want: { samLooking: false, footprints: [{ x: 2, y: 2, glow: false }, { x: 3, y: 2, glow: false }, { x: 4, y: 2, glow: false }] } },
+        { about: "eye shows the turn before Sam looks", inputs: "FOLLOW FOLLOW", want: { samLooking: true, events: { "moment:blink": 1 } } },
+        { about: "Resist: Theo stays, costs 1 Will, +1 crack", inputs: "RESIST",
+          want: { person: { x: 2, y: 2 }, reflection: { x: 5, y: 2 }, will: 1, cracks: 1, events: { "moment:shimmer": 1 } } },
+        { about: "Break: Theo moves his own way", inputs: "U", want: { reflection: { x: 5, y: 1 }, will: 1, cracks: 1 } },
+        { about: "disobeying while Sam looks fails as seen", inputs: "FOLLOW FOLLOW RESIST", want: { status: "failed", events: { "fail:seen": 1 } } },
+        { about: "with 0 Will, Break acts like Follow", inputs: "RESIST U FOLLOW R",
+          want: { reflection: { x: 3, y: 1 }, will: 0, cracks: 2, status: "failed", events: { "fail:route": 1 } } },
+        { about: "only following ends off the goal: route fail", inputs: "FOLLOW FOLLOW FOLLOW FOLLOW", want: { status: "failed", events: { "fail:route": 1 } } },
+        { about: "winning sends the message twice, then win", inputs: "FOLLOW FOLLOW FOLLOW R",
+          want: { status: "won", will: 1, events: { "text:HELLO SAM": 2, "win": 1, "text:IS SOMEONE THERE?": 1 } } },
+        { about: "undo gives the Will back", inputs: "RESIST UNDO", want: { will: 2, cracks: 0, turn: 0 } }
+      ]
     }
   ];
 
@@ -314,6 +362,10 @@
     (s.boxes || []).forEach(b => {
       const side = b.side === "left" ? 0 : 1;
       if (rows[b.y] && rows[b.y][side][b.x] !== undefined) rows[b.y][side][b.x] = "x";
+    });
+    // Sam's next footprints: o, or * for the glowing frame-turn step.
+    (s.footprints || []).forEach(f => {
+      if (rows[f.y] && rows[f.y][0][f.x] !== undefined) rows[f.y][0][f.x] = f.glow ? "*" : "o";
     });
     if (rows[s.person.y]) rows[s.person.y][0][s.person.x] = "T";
     if (rows[s.reflection.y]) rows[s.reflection.y][1][s.reflection.x] = "R";
@@ -432,7 +484,8 @@
 
   function summary(s) {
     const mercy = s.carry ? s.carry.mercy : "?";
-    return "status " + s.status + " · cracks " + s.cracks + " · mercy " + mercy + " · ending " + s.ending;
+    return "status " + s.status + " · cracks " + s.cracks + " · mercy " + mercy +
+      (s.will === null ? "" : " · will " + s.will) + " · ending " + s.ending;
   }
 
   function writeOut(lines) {
@@ -505,7 +558,8 @@
     const problems = [];
     const actual = {
       status: s.status, turn: s.turn, cracks: s.cracks, mercy: s.carry ? s.carry.mercy : undefined,
-      slipTurns: s.slipTurns, person: s.person, reflection: s.reflection, openDoors: s.openDoors, ending: s.ending
+      slipTurns: s.slipTurns, person: s.person, reflection: s.reflection, openDoors: s.openDoors, ending: s.ending,
+      will: s.will, samLooking: s.samLooking, footprints: s.footprints
     };
     Object.keys(want).forEach(k => {
       if (k === "events") return;
